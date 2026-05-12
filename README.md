@@ -22,15 +22,23 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 **2. Set your OpenAI key**
+Create your own .env file
 ```bash
-export OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=sk-...
 ```
 
 **3. Install dependencies**
 ```bash
 cd playground
+// activate virtual env
+source .venv/bin/activate
 uv sync
+
+// To deactivate virtual env
+deactivate
 ```
+
+
 
 This installs all dependencies including the `sdk` package in editable mode — changes to `sdk/` are reflected immediately without reinstalling.
 
