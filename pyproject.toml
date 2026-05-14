@@ -20,6 +20,7 @@ dependencies = [
     "opentelemetry-sdk>=1.41.1",
     "opentelemetry-exporter-otlp>=1.41.1",
     "openinference-instrumentation-openai-agents>=1.4.3",
+    "httpx>=0.28.1",
 ]
 
 [tool.uv.workspace]

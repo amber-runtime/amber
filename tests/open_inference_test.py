@@ -284,6 +284,11 @@ async def demo_agent_endpoint(
         crash_during_forecast,
     )
 
+@app.post("/resume/{workflow_id}")
+def resume(workflow_id: str):
+    DBOS.resume_workflow(workflow_id)
+    return {"status": "queued"}
+
 
 async def run_agent_workflow(
     workflow_id: str,
