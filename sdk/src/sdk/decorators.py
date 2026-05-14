@@ -1,3 +1,5 @@
+import asyncio
+import functools
 import os
 from dbos import DBOS, DBOSConfig
 from typing import Optional, Callable, Union, Awaitable
@@ -16,7 +18,7 @@ def step(
         Callable[[BaseException], Union[bool, Awaitable[bool]]]
     ] = None,
 ):
-    return DBOS.step(
+    dbos_step = DBOS.step(
         name=name,
         retries_allowed=retries_allowed,
         interval_seconds=interval_seconds,
@@ -24,6 +26,27 @@ def step(
         backoff_rate=backoff_rate,
         should_retry=should_retry,
     )
+
+    def decorator(fn):
+        if asyncio.iscoroutinefunction(fn):
+            @functools.wraps(fn)
+            async def stamped(*args, **kwargs):
+                span = DBOS.span
+                step_id = DBOS.step_id
+                if span is not None and step_id is not None:
+                    span.set_attribute("dbos.step_id", step_id)
+                return await fn(*args, **kwargs)
+        else:
+            @functools.wraps(fn)
+            def stamped(*args, **kwargs):
+                span = DBOS.span
+                step_id = DBOS.step_id
+                if span is not None and step_id is not None:
+                    span.set_attribute("dbos.step_id", step_id)
+                return fn(*args, **kwargs)
+        return dbos_step(stamped)
+
+    return decorator
 
 def sleep(*args, **kwargs):
     return DBOS.sleep(*args, **kwargs)

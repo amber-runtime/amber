@@ -3,11 +3,17 @@ import sys
 from agents import Agent, function_tool
 from dbos import DBOS, DBOSConfig
 sys.path.insert(0, '../sdk/src')
-from sdk.runner import OurRunner
+from agents import Runner
 from ddgs import DDGS
+from sdk.decorators import step
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from openinference.instrumentation.openai_agents import OpenAIAgentsInstrumentor
 
 @function_tool
-@DBOS.step()
+@step()
 def search_web(query: str) -> str:
     """Search the web for information about a topic. Returns titles, URLs, and summaries."""
     with DDGS() as ddgs:
@@ -33,7 +39,7 @@ Be explicit about what you found and what remains uncertain.""",
 
 @DBOS.workflow()
 async def run_agent(topic: str) -> str:
-    result = await OurRunner.run(agent, f"Research this topic thoroughly: {topic}")
+    result = await Runner.run(starting_agent=agent, input=f"Research this topic thoroughly: {topic}")
     return str(result.final_output)
 
 async def main():
@@ -48,10 +54,19 @@ async def main():
     print(output)
 
 if __name__ == "__main__":
+    _tp = TracerProvider()
+    _tp.add_span_processor(
+        BatchSpanProcessor(OTLPSpanExporter(endpoint="http://localhost:6006/v1/traces"))
+    )
+    trace.set_tracer_provider(_tp)
+    OpenAIAgentsInstrumentor().instrument(tracer_provider=_tp)
+
     config: DBOSConfig = {
         "name": "research-assistant",
         "conductor_key": "dbos_784fa5ce-6f5c-492f-a1aa-f1edcac18b8d_8c85bee0-7717-4496-9e21-674e8810b083",
+        "enable_otlp": True,
     }
     DBOS(config=config)
     DBOS.launch()
     asyncio.run(main())
+    _tp.shutdown()
