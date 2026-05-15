@@ -1,8 +1,11 @@
 import asyncio
 import functools
 import os
+import time
 from dbos import DBOS, DBOSConfig
 from typing import Optional, Callable, Union, Awaitable
+
+_log_steps: bool = True
 
 def workflow(
     *,
@@ -57,7 +60,18 @@ def step(
                 step_id = DBOS.step_id
                 if span is not None and step_id is not None:
                     span.set_attribute("dbos.step_id", step_id)
-                return await fn(*args, **kwargs)
+                if _log_steps:
+                    logger.info("step %s started", fn.__name__)
+                _t = time.monotonic()
+                try:
+                    result = await fn(*args, **kwargs)
+                    if _log_steps:
+                        logger.info("step %s done (%.2fs)", fn.__name__, time.monotonic() - _t)
+                    return result
+                except Exception as exc:
+                    if _log_steps:
+                        logger.error("step %s failed (%.2fs): %s", fn.__name__, time.monotonic() - _t, exc)
+                    raise
         else:
             @functools.wraps(fn)
             def stamped(*args, **kwargs):
@@ -65,7 +79,18 @@ def step(
                 step_id = DBOS.step_id
                 if span is not None and step_id is not None:
                     span.set_attribute("dbos.step_id", step_id)
-                return fn(*args, **kwargs)
+                if _log_steps:
+                    logger.info("step %s started", fn.__name__)
+                _t = time.monotonic()
+                try:
+                    result = fn(*args, **kwargs)
+                    if _log_steps:
+                        logger.info("step %s done (%.2fs)", fn.__name__, time.monotonic() - _t)
+                    return result
+                except Exception as exc:
+                    if _log_steps:
+                        logger.error("step %s failed (%.2fs): %s", fn.__name__, time.monotonic() - _t, exc)
+                    raise
         return dbos_step(stamped)
 
     return decorator
@@ -79,7 +104,10 @@ def init(
     conductor_key: str | None = None,
     traces_endpoint: str | None = None,
     env: str | None = None,
+    log_steps: bool = True,
 ) -> None:
+    global _log_steps
+    _log_steps = log_steps
     resolved_env = env or os.environ.get("CHECKPOINT_ENV", "development")
     resolved_db = (
         db_url

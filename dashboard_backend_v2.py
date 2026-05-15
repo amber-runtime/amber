@@ -1,22 +1,13 @@
 """
-FastAPI dashboard backend — Postgres-only, no Phoenix required.
+Dashboard backend — read-only, separate DBOS runtime, same Postgres DB as the executor.
 
-## Setup
-  1. Make sure `.env` has:
-     DBOS_SYSTEM_DATABASE_URL=postgresql://...
-     OPENAI_API_KEY=...
+## Run (run on port 8001 alongside agent with DBOS decorators)
+  uv run uvicorn dashboard_backend_v2:app --port 8001
 
-  ## Run
-  # Run the agent (pick any topic)
-  uv run tests/research_agent.py "your topic here"
-
-  # Start the backend
-  uv run uvicorn dashboard_backend_2:app --reload
-
-  ## Test
-  # Open http://localhost:8000/docs
-  # GET /workflows?limit=1   → grab the workflow_uuid
-  # GET /workflows/{uuid}    → see the full JOIN with LLM + step data
+## Endpoints
+  GET /health
+  GET /workflows?status=PENDING&limit=50
+  GET /workflows/{workflow_id}   ← full JOIN: DBOS steps + OTel spans
 """
 import os
 from contextlib import asynccontextmanager
@@ -24,6 +15,7 @@ from typing import Any, Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from sdk import (
@@ -47,7 +39,7 @@ DB_URL = (
 # ── Pydantic models ───────────────────────────────────────────────────────────
 
 class WorkflowSummary(BaseModel):
-    workflow_uuid: str
+    workflow_id: str
     name: str
     status: str
     created_at: Optional[int]
@@ -72,43 +64,26 @@ class WorkflowDetail(BaseModel):
     steps: list[StepRecord]
 
 
-class RunAgentRequest(BaseModel):
-    topic: str
-    workflow_uuid: Optional[str] = None
-
-
-class RunAgentResponse(BaseModel):
-    workflow_uuid: str
-    topic: str
-    output: str
-
-
-class ResumeWorkflowRequest(BaseModel):
-    workflow_uuid: str
-
-
-class ResumeWorkflowResponse(BaseModel):
-    workflow_uuid: str
-    status: str
-    output: Optional[str]
-
-
 # ── App startup ───────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from tests.research_agent import run_agent  # noqa: F401 — registers @workflow with DBOS
-    init(
-        name="research-assistant",
-        db_url=DB_URL or None,
-    )
+    # No workflow imports — this process is a pure reader.
+    # DBOS will not attempt to execute or recover any workflows here.
+    init(name="checkpoint-dashboard", db_url=DB_URL or None)
     yield
 
 
 app = FastAPI(title="Checkpoint Dashboard", version="0.2.0", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
+
+@app.get("/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok"}
+
 
 @app.get("/workflows", response_model=list[WorkflowSummary])
 def get_workflows(
@@ -121,7 +96,7 @@ def get_workflows(
     rows = list_workflows(status=status, limit=limit)
     return [
         WorkflowSummary(
-            workflow_uuid=r["workflow_uuid"],
+            workflow_id=r["workflow_id"],
             name=r["name"],
             status=r["status"],
             created_at=r["created_at"],
@@ -146,66 +121,3 @@ def get_workflow_detail(workflow_id: str):
     return WorkflowDetail(workflow=wf, steps=step_records)
 
 
-@app.post("/run-agent", response_model=RunAgentResponse)
-async def trigger_run_agent(body: RunAgentRequest):
-    """Start or reconnect to a research-assistant workflow.
-
-    If workflow_uuid is provided, reconnects to that existing run.
-    If omitted, starts a new workflow with a DBOS-generated UUID.
-    """
-    from dbos import DBOS
-    from dbos._error import DBOSNonExistentWorkflowError
-    from tests.research_agent import run_agent
-
-    if body.workflow_uuid:
-        try:
-            handle = await DBOS.retrieve_workflow_async(body.workflow_uuid)
-        except DBOSNonExistentWorkflowError:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Workflow {body.workflow_uuid!r} not found in DBOS",
-            )
-    else:
-        handle = await DBOS.start_workflow_async(run_agent, body.topic)
-
-    output = await handle.get_result()
-    return RunAgentResponse(
-        workflow_uuid=handle.workflow_id,
-        topic=body.topic,
-        output=output,
-    )
-
-
-@app.post("/resume-workflow", response_model=ResumeWorkflowResponse)
-async def resume_workflow(body: ResumeWorkflowRequest):
-    """Reconnect to an existing PENDING workflow and wait for its result."""
-    from dbos import DBOS
-    from dbos._error import DBOSNonExistentWorkflowError
-
-    wf = get_workflow(body.workflow_uuid)
-    if wf is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Workflow {body.workflow_uuid!r} not found",
-        )
-    if wf["status"] in ("SUCCESS", "ERROR"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Workflow {body.workflow_uuid!r} already finished with status {wf['status']!r}",
-        )
-
-    try:
-        handle = await DBOS.retrieve_workflow_async(body.workflow_uuid)
-    except DBOSNonExistentWorkflowError:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Workflow {body.workflow_uuid!r} not found in DBOS",
-        )
-
-    output = await handle.get_result()
-    wf = get_workflow(body.workflow_uuid)
-    return ResumeWorkflowResponse(
-        workflow_uuid=body.workflow_uuid,
-        status=wf["status"] if wf else "UNKNOWN",
-        output=str(output) if output is not None else None,
-    )

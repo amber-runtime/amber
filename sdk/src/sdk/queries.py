@@ -19,7 +19,7 @@ import psycopg2.extras
 
 def _wf_to_dict(w) -> dict:
     return {
-        "workflow_uuid":     w.workflow_id,
+        "workflow_id":       w.workflow_id,
         "name":              w.name,
         "status":            w.status,
         "created_at":        w.created_at,

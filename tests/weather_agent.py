@@ -1,15 +1,18 @@
 # to run, from playground directory
-# uv run uvicorn demo:app --reload
+# uv run uvicorn tests.weather_agent:app --port 8000
 import os
+import signal
 from pathlib import Path
 
 from contextlib import asynccontextmanager
+from typing import Optional
 
 from agents import Agent, function_tool
 from dbos import DBOS, SetWorkflowID
 from dbos._error import DBOSNonExistentWorkflowError
 from dotenv import load_dotenv, find_dotenv
 from fastapi import FastAPI, Path as FastAPIPath, Query
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sdk import workflow, step, agentic_runner, init as sdk_init
 
@@ -26,6 +29,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.4-mini")
 SAMPLE_MESSAGE = (
     "Plan a day in San Francisco based on weather, forecast, air quality, "
@@ -45,8 +49,10 @@ class AgentRequest(BaseModel):
 
 class AgentResponse(BaseModel):
     workflow_id: str
-    output: str
-    note: str
+    status: str
+    output: Optional[str] = None
+    note: Optional[str] = None
+
 
 
 @function_tool
@@ -69,7 +75,7 @@ def crash_once_during_forecast(workflow_id: str) -> None:
 
     CRASH_MARKER_DIR.mkdir(parents=True, exist_ok=True)
     marker_path.write_text("crashed once during forecast\n", encoding="utf-8")
-    os._exit(42)
+    os.kill(os.getpid(), signal.SIGTERM)
 
 
 @function_tool
@@ -200,6 +206,7 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+
 @app.post("/agent/{workflow_id}", response_model=AgentResponse)
 async def agent_endpoint(
     request: AgentRequest,
@@ -240,8 +247,9 @@ async def demo_agent_endpoint(
 
 @app.post("/resume/{workflow_id}")
 def resume(workflow_id: str):
+    """Re-queue a PENDING/crashed workflow. Poll dashboard GET /workflows/{id} for status."""
     DBOS.resume_workflow(workflow_id)
-    return {"status": "queued"}
+    return {"workflow_id": workflow_id, "status": "queued"}
 
 
 async def run_agent_workflow(
@@ -250,7 +258,8 @@ async def run_agent_workflow(
     crash_during_forecast: bool,
 ) -> AgentResponse:
     try:
-        handle = await DBOS.retrieve_workflow_async(workflow_id)
+        await DBOS.retrieve_workflow_async(workflow_id)
+        status = "reconnected"
     except DBOSNonExistentWorkflowError:
         if crash_during_forecast:
             CRASH_REQUEST_DIR.mkdir(parents=True, exist_ok=True)
@@ -258,7 +267,7 @@ async def run_agent_workflow(
             request_path.write_text("crash during forecast\n", encoding="utf-8")
 
         with SetWorkflowID(workflow_id):
-            handle = await DBOS.start_workflow_async(run_agent, message)
+            await DBOS.start_workflow_async(run_agent, message)
+        status = "started"
 
-    result = await handle.get_result()
-    return AgentResponse(**result)
+    return AgentResponse(workflow_id=workflow_id, status=status)
