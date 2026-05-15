@@ -63,7 +63,6 @@ if __name__ == "__main__":
 
     config: DBOSConfig = {
         "name": "research-assistant",
-        "conductor_key": "dbos_784fa5ce-6f5c-492f-a1aa-f1edcac18b8d_8c85bee0-7717-4496-9e21-674e8810b083",
         "enable_otlp": True,
     }
     DBOS(config=config)
