@@ -36,8 +36,8 @@ SAMPLE_MESSAGE = (
     "and activity options. Show the evidence you used."
 )
 CONDUCTOR_NOTE = (
-    "DBOS/Conductor contains model-call checkpoints and any tool steps the "
-    "agent chose to run."
+    "DBOS tracks durable workflow and step execution. The Checkpoint dashboard "
+    "adds SDK-captured agent events for model calls, tool calls, and recovery debugging."
 )
 CRASH_MARKER_DIR = Path("/tmp/dbos-agentic-loop-crashes")
 CRASH_REQUEST_DIR = Path("/tmp/dbos-agentic-loop-crash-requests")

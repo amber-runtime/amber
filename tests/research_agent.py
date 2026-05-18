@@ -2,10 +2,10 @@ import asyncio
 import os
 import sys
 
-from agents import Agent, Runner, function_tool
+from agents import Agent, function_tool
 from ddgs import DDGS
 
-from sdk import init, step, workflow
+from sdk import agentic_runner, init, step, workflow
 
 
 @function_tool
@@ -37,7 +37,10 @@ Be explicit about what you found and what remains uncertain.""",
 
 @workflow()
 async def run_agent(topic: str) -> str:
-    result = await Runner.run(starting_agent=agent, input=f"Research this topic thoroughly: {topic}")
+    result = await agentic_runner(
+        starting_agent=agent,
+        input=f"Research this topic thoroughly: {topic}",
+    )
     return str(result.final_output)
 
 

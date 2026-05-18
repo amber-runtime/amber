@@ -68,8 +68,7 @@ def step(
 def sleep(*args, **kwargs):
     return DBOS.sleep(*args, **kwargs)
 
-def logger(*args, **kwargs):
-    return DBOS.logger(*args, **kwargs)
+logger = DBOS.logger
 
 def init(
     name: str,
@@ -94,6 +93,12 @@ def init(
     DBOS(config=config)
     DBOS.launch()
 
+    if resolved_db and resolved_db.startswith("postgresql"):
+        from agents.tracing import add_trace_processor
+        from sdk.tracing import CheckpointTracingProcessor, ensure_tables
+        ensure_tables(resolved_db)
+        add_trace_processor(CheckpointTracingProcessor(resolved_db))
+
 
 def _log_step_started(step_name: str) -> float:
     logger.info("step %s started", step_name)
@@ -106,4 +111,3 @@ def _log_step_succeeded(step_name: str, started_at: float) -> None:
 
 def _log_step_failed(step_name: str, started_at: float, exc: Exception) -> None:
     logger.error("step %s failed (%.2fs): %s", step_name, time.monotonic() - started_at, exc)
-
