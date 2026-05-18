@@ -65,8 +65,8 @@ def step(
     return decorator
 
 
-def sleep(*args, **kwargs):
-    return DBOS.sleep(*args, **kwargs)
+async def sleep(*args, **kwargs):
+    return await DBOS.sleep_async(*args, **kwargs)
 
 logger = DBOS.logger
 
