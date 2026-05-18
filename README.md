@@ -93,7 +93,7 @@ from sdk import init, workflow, step, sleep, agentic_runner
 
 | Function | What it does |
 |---|---|
-| `init(name, db_url, traces_endpoint, env)` | Configure and launch DBOS — call once in `__main__` |
+| `init(name, db_url, conductor_key)` | Configure and launch DBOS — call once in `__main__` |
 | `@workflow()` | Mark a function as a durable workflow |
 | `@step()` | Mark a function as a checkpointed step |
 | `sleep(seconds)` | Durable sleep — skips elapsed time on crash recovery |
@@ -134,17 +134,3 @@ Or pass it directly:
 ```python
 init(name="my-app", db_url="postgresql://...")
 ```
-
-## Adding Tracing
-
-Pass an OTLP endpoint to `init()` to enable OpenTelemetry traces for every workflow and step:
-
-```python
-init(
-    name="my-app",
-    traces_endpoint="https://your-collector:4318/v1/traces",
-    env="production",
-)
-```
-
-OTel-compatible backends: Datadog, Grafana Tempo, Honeycomb, Jaeger, etc.

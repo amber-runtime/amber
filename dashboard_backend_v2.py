@@ -1,4 +1,5 @@
 """
+(v2 - leaner version)
 Dashboard backend — read-only, separate DBOS runtime, same Postgres DB as the executor.
 
 ## Run (run on port 8001 alongside agent with DBOS decorators)
@@ -7,7 +8,7 @@ Dashboard backend — read-only, separate DBOS runtime, same Postgres DB as the 
 ## Endpoints
   GET /health
   GET /workflows?status=PENDING&limit=50
-  GET /workflows/{workflow_id}   ← full JOIN: DBOS steps + OTel spans
+  GET /workflows/{workflow_id}   ← DBOS-backed workflow + step history
 """
 import os
 from contextlib import asynccontextmanager
@@ -23,7 +24,6 @@ from sdk import (
     list_workflows,
     get_workflow,
     get_steps,
-    fetch_spans_for_workflow,
     build_step_records,
 )
 
@@ -52,11 +52,6 @@ class StepRecord(BaseModel):
     function_name: str
     status: str
     duration_ms: Optional[int]
-    llm_model: Optional[str]
-    tokens_in: Optional[int]
-    tokens_out: Optional[int]
-    tool_name: Optional[str]
-    tool_args: Optional[str]
 
 
 class WorkflowDetail(BaseModel):
@@ -109,15 +104,13 @@ def get_workflows(
 
 @app.get("/workflows/{workflow_id}", response_model=WorkflowDetail)
 def get_workflow_detail(workflow_id: str):
-    """Return full workflow info + per-step JOIN of DBOS steps + span data."""
+    """Return workflow info plus DBOS-backed step history."""
     wf = get_workflow(workflow_id)
     if wf is None:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
 
     steps = get_steps(workflow_id)
-    all_spans = fetch_spans_for_workflow(workflow_id, DB_URL)
-    step_records = build_step_records(steps, all_spans)
+    step_records = build_step_records(steps)
 
     return WorkflowDetail(workflow=wf, steps=step_records)
-
 

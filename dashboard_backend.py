@@ -16,16 +16,12 @@ FastAPI dashboard backend — Postgres-only, no Phoenix required.
   ## Test
   # Open http://localhost:8000/docs
   # GET /workflows?limit=1   → grab the workflow_uuid
-  # GET /workflows/{uuid}    → see the full JOIN with LLM + step data
+  # GET /workflows/{uuid}    → see DBOS workflow + step data
 """
-import json
 import os
-import textwrap
 from contextlib import asynccontextmanager
 from typing import Any, Optional
 
-import psycopg2
-import psycopg2.extras
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
@@ -57,11 +53,6 @@ class StepRecord(BaseModel):
     function_name: str
     status: str
     duration_ms: Optional[int]
-    llm_model: Optional[str]
-    tokens_in: Optional[int]
-    tokens_out: Optional[int]
-    tool_name: Optional[str]
-    tool_args: Optional[str]
 
 
 class WorkflowDetail(BaseModel):
@@ -125,99 +116,19 @@ def _wf_to_dict(w) -> dict:
     }
 
 
-# ── Span data access (our public schema via OurSpanExporter) ─────────────────
-
-def _spans_db() -> psycopg2.extensions.connection:
-    conn = psycopg2.connect(DB_URL)
-    conn.autocommit = True
-    return conn
-
-
-def fetch_spans_for_workflow(workflow_uuid: str) -> list[dict]:
-    """Return all spans for the trace linked to this workflow_uuid."""
-    conn = _spans_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute(
-        """
-        SELECT s.span_id, s.parent_span_id, s.span_kind,
-               s.attributes, s.dbos_step_id, s.name
-        FROM spans s
-        JOIN traces t ON t.trace_id = s.trace_id
-        WHERE t.workflow_id = %s
-        ORDER BY s.start_time
-        """,
-        (workflow_uuid,),
-    )
-    rows = [dict(r) for r in cur.fetchall()]
-    cur.close()
-    conn.close()
-    return rows
-
-
-# ── JOIN logic ────────────────────────────────────────────────────────────────
-
-def build_step_records(steps: list[dict], all_spans: list[dict]) -> list[dict]:
-    """
-    JOIN DBOS step records with span data on dbos_step_id == function_id.
-
-    Span tree shape (OpenInference / OpenAI Agents SDK):
-        turn (CHAIN)
-        ├── response (LLM)              ← model name + token counts
-        └── search_web (TOOL, step)     ← step span IS the tool span; tool args live here
-    """
-    children: dict[Optional[str], list[dict]] = {}
-    for s in all_spans:
-        children.setdefault(s["parent_span_id"], []).append(s)
-
-    step_spans_by_step_id: dict[int, dict] = {
-        s["dbos_step_id"]: s
-        for s in all_spans
-        if s["dbos_step_id"] is not None
-    }
-
+def build_step_records(steps: list[dict]) -> list[dict]:
+    """Shape DBOS step records for dashboard consumption."""
     records = []
     for step in steps:
-        step_span = step_spans_by_step_id.get(step["function_id"])
-
-        # Tool args live on the step span itself (it IS the TOOL span)
-        tool_attrs: dict = (step_span["attributes"] or {}) if step_span else {}
-
-        # The step span's parent is the turn (CHAIN); response (LLM) is a sibling
-        llm_attrs: dict = {}
-        if step_span and step_span.get("parent_span_id"):
-            turn_id = step_span["parent_span_id"]
-            llm_span = next(
-                (s for s in children.get(turn_id, []) if s["span_kind"] == "LLM"),
-                None,
-            )
-            if llm_span:
-                llm_attrs = llm_span["attributes"] or {}
-
         duration_ms = None
         if step.get("started_at_epoch_ms") and step.get("completed_at_epoch_ms"):
             duration_ms = step["completed_at_epoch_ms"] - step["started_at_epoch_ms"]
-
-        raw_args = tool_attrs.get("input.value", "")
-        try:
-            short_args: Optional[str] = textwrap.shorten(
-                json.dumps(json.loads(raw_args)), width=80
-            )
-        except (json.JSONDecodeError, TypeError):
-            short_args = textwrap.shorten(str(raw_args), width=80) or None
-
-        tok_in = llm_attrs.get("llm.token_count.prompt")
-        tok_out = llm_attrs.get("llm.token_count.completion")
 
         records.append({
             "step_id":       step["function_id"],
             "function_name": step["function_name"],
             "status":        "SUCCESS" if step.get("error") is None else "ERROR",
             "duration_ms":   duration_ms,
-            "llm_model":     llm_attrs.get("llm.model_name"),
-            "tokens_in":     int(tok_in) if tok_in is not None else None,
-            "tokens_out":    int(tok_out) if tok_out is not None else None,
-            "tool_name":     tool_attrs.get("tool.name") or step["function_name"],
-            "tool_args":     short_args,
         })
     return records
 
@@ -263,14 +174,13 @@ def get_workflows(
 
 @app.get("/workflows/{workflow_id}", response_model=WorkflowDetail)
 def get_workflow_detail(workflow_id: str):
-    """Return full workflow info + per-step JOIN of DBOS steps + span data."""
+    """Return full workflow info plus DBOS-backed step history."""
     wf = get_workflow_dbos(workflow_id)
     if wf is None:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
 
     steps = get_steps_dbos(workflow_id)
-    all_spans = fetch_spans_for_workflow(workflow_id)
-    step_records = build_step_records(steps, all_spans)
+    step_records = build_step_records(steps)
 
     return WorkflowDetail(workflow=wf, steps=step_records)
 
