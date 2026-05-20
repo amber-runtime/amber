@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import type { Step, WorkflowInfo } from '../lib/types'
+import { groupStepsIntoTurns } from '../lib/stepHelpers'
 import { GanttStrip } from './GanttStrip'
-import { StepCard } from './StepCard'
+import { TurnGroup } from './TurnGroup'
 
 interface Props {
   workflow: WorkflowInfo
@@ -11,15 +12,13 @@ interface Props {
 export function StepTimeline({ workflow, steps }: Props) {
   const [activeStepId, setActiveStepId] = useState<number | null>(null)
 
+  const turns = groupStepsIntoTurns(steps)
+
   const workflowStart = workflow.created_at
-  // For PENDING workflows, use the last known timestamp as the right edge
   const workflowEnd =
     workflow.updated_at > workflow.created_at
       ? workflow.updated_at
-      : workflow.created_at +
-        (steps[steps.length - 1]?.started_at_epoch_ms ?? workflow.created_at) -
-        workflow.created_at +
-        5000
+      : workflow.created_at + 5000
 
   if (steps.length === 0) {
     return (
@@ -33,6 +32,7 @@ export function StepTimeline({ workflow, steps }: Props) {
     <div className="space-y-3">
       <GanttStrip
         steps={steps}
+        turns={turns}
         workflowStart={workflowStart}
         workflowEnd={workflowEnd}
         activeStepId={activeStepId}
@@ -40,12 +40,11 @@ export function StepTimeline({ workflow, steps }: Props) {
       />
 
       <div className="space-y-2">
-        {steps.map((step, idx) => (
-          <StepCard
-            key={step.function_id}
-            step={step}
-            index={idx}
-            isActive={step.function_id === activeStepId}
+        {turns.map((turn) => (
+          <TurnGroup
+            key={turn.kind === 'preflight' ? 'preflight' : turn.turnNumber}
+            turn={turn}
+            activeStepId={activeStepId}
           />
         ))}
       </div>

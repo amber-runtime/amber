@@ -1,8 +1,9 @@
-import type { Step } from '../lib/types'
+import type { Step, Turn } from '../lib/types'
 import { getStepKind, humanizeStepName, formatDuration, stepDurationMs } from '../lib/stepHelpers'
 
 interface Props {
   steps: Step[]
+  turns: Turn[]
   workflowStart: number
   workflowEnd: number
   activeStepId: number | null
@@ -23,14 +24,31 @@ const KIND_ACTIVE: Record<ReturnType<typeof getStepKind>, string> = {
   other: 'bg-sky-600',
 }
 
+// Subtle alternating band colors per turn kind
+const TURN_BAND: Record<Turn['kind'], (even: boolean) => string> = {
+  preflight: () => 'bg-gray-100/60',
+  agent: (even) => (even ? 'bg-transparent' : 'bg-indigo-50/40'),
+  final: () => 'bg-green-50/50',
+}
+
 const TICK_COUNT = 5
 
-export function GanttStrip({ steps, workflowStart, workflowEnd, activeStepId, onStepClick }: Props) {
+export function GanttStrip({
+  steps,
+  turns,
+  workflowStart,
+  workflowEnd,
+  activeStepId,
+  onStepClick,
+}: Props) {
   const totalDuration = Math.max(workflowEnd - workflowStart, 1)
 
   const ticks = Array.from({ length: TICK_COUNT + 1 }, (_, i) =>
     Math.round((totalDuration * i) / TICK_COUNT),
   )
+
+  // Even/odd index among agent+final turns only (preflight always uses its own color)
+  let agentIndex = 0
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
@@ -57,21 +75,63 @@ export function GanttStrip({ steps, workflowStart, workflowEnd, activeStepId, on
           })}
         </div>
 
-        {/* Grid lines + bars */}
+        {/* Chart area */}
         <div className="relative" style={{ minHeight: `${steps.length * 36}px` }}>
-          {/* Vertical grid lines */}
-          {ticks.map((ms) => {
-            const pct = (ms / totalDuration) * 100
+          {/* Turn background bands */}
+          {turns.map((turn) => {
+            const bandStart = turn.startedAtMs
+            const bandEnd = turn.endedAtMs ?? workflowEnd
+            const leftPct = Math.max(
+              0,
+              ((bandStart - workflowStart) / totalDuration) * 100,
+            )
+            const widthPct = Math.min(
+              100 - leftPct,
+              ((bandEnd - bandStart) / totalDuration) * 100,
+            )
+
+            let bandClass: string
+            if (turn.kind === 'preflight') {
+              bandClass = TURN_BAND.preflight(false)
+            } else {
+              bandClass = TURN_BAND[turn.kind](agentIndex % 2 === 0)
+              agentIndex++
+            }
+
             return (
               <div
-                key={ms}
-                className="absolute top-0 bottom-0 w-px bg-gray-100"
+                key={turn.kind === 'preflight' ? 'preflight' : turn.turnNumber}
+                className={`absolute top-0 bottom-0 ${bandClass}`}
+                style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+              />
+            )
+          })}
+
+          {/* Turn boundary lines (vertical, at each turn start except the first) */}
+          {turns.slice(1).map((turn) => {
+            const pct = ((turn.startedAtMs - workflowStart) / totalDuration) * 100
+            return (
+              <div
+                key={`boundary-${turn.kind === 'preflight' ? 0 : turn.turnNumber}`}
+                className="absolute top-0 bottom-0 w-px bg-gray-200 z-[1]"
                 style={{ left: `${pct}%` }}
               />
             )
           })}
 
-          {/* Step rows */}
+          {/* Vertical grid lines (tick positions) */}
+          {ticks.map((ms) => {
+            const pct = (ms / totalDuration) * 100
+            return (
+              <div
+                key={ms}
+                className="absolute top-0 bottom-0 w-px bg-gray-100 z-[1]"
+                style={{ left: `${pct}%` }}
+              />
+            )
+          })}
+
+          {/* Step bars */}
           {steps.map((step, idx) => {
             const kind = getStepKind(step.function_name)
             const isActive = step.function_id === activeStepId
@@ -100,7 +160,7 @@ export function GanttStrip({ steps, workflowStart, workflowEnd, activeStepId, on
             return (
               <div
                 key={step.function_id}
-                className="absolute flex items-center"
+                className="absolute flex items-center z-[2]"
                 style={{ top: `${idx * 36}px`, height: '28px', left: 0, right: 0 }}
               >
                 <div
@@ -114,7 +174,7 @@ export function GanttStrip({ steps, workflowStart, workflowEnd, activeStepId, on
                       step.completed_at_epoch_ms == null ? 'opacity-60 animate-pulse' : ''
                     } ${isActive ? 'ring-2 ring-offset-1 ring-indigo-300' : ''}`}
                   />
-                  {/* Tooltip on hover */}
+                  {/* Tooltip */}
                   <div className="hidden group-hover:block absolute z-10 bottom-full left-1/2 -translate-x-1/2 mb-1.5 pointer-events-none">
                     <div className="bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap shadow-lg">
                       {tooltip}

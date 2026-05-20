@@ -66,3 +66,15 @@ export interface WorkflowDetail {
   workflow: WorkflowInfo
   steps: Step[]
 }
+
+export type TurnKind = 'preflight' | 'agent' | 'final'
+
+export interface Turn {
+  turnNumber: number        // 1-indexed for agent/final; 0 for preflight
+  kind: TurnKind
+  llmStep: Step | null      // null only for preflight
+  toolSteps: Step[]
+  startedAtMs: number
+  endedAtMs: number | null  // null if any step is still running
+  totalDurationMs: number | null
+}

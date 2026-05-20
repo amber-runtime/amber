@@ -1,4 +1,4 @@
-import type { Step, LLMOutput, LLMMessageItem } from './types'
+import type { Step, LLMOutput, LLMMessageItem, Turn } from './types'
 
 export type StepKind = 'llm' | 'tool' | 'sleep' | 'other'
 
@@ -116,6 +116,76 @@ export function sumTokens(steps: Step[]): number {
     if (!isLLMOutput(step.output)) return sum
     return sum + (step.output.usage?.total_tokens ?? 0)
   }, 0)
+}
+
+export function groupStepsIntoTurns(steps: Step[]): Turn[] {
+  const turns: Turn[] = []
+  let i = 0
+  let agentTurnCount = 0
+
+  // Collect preflight steps (before the first _model_call_step)
+  const preflightSteps: Step[] = []
+  while (i < steps.length && steps[i].function_name !== '_model_call_step') {
+    preflightSteps.push(steps[i])
+    i++
+  }
+  if (preflightSteps.length > 0) {
+    const start = preflightSteps[0].started_at_epoch_ms
+    const lastEnd = preflightSteps[preflightSteps.length - 1].completed_at_epoch_ms
+    turns.push({
+      turnNumber: 0,
+      kind: 'preflight',
+      llmStep: null,
+      toolSteps: preflightSteps,
+      startedAtMs: start,
+      endedAtMs: lastEnd,
+      totalDurationMs: lastEnd != null ? lastEnd - start : null,
+    })
+  }
+
+  while (i < steps.length) {
+    if (steps[i].function_name !== '_model_call_step') {
+      // Orphan tool step between turns — absorb and skip
+      i++
+      continue
+    }
+
+    const llmStep = steps[i]
+    i++
+
+    const toolSteps: Step[] = []
+    while (i < steps.length && steps[i].function_name !== '_model_call_step') {
+      toolSteps.push(steps[i])
+      i++
+    }
+
+    agentTurnCount++
+    const lastToolEnd = toolSteps.length > 0
+      ? toolSteps[toolSteps.length - 1].completed_at_epoch_ms
+      : null
+    const endedAtMs = lastToolEnd ?? llmStep.completed_at_epoch_ms
+    const startedAtMs = llmStep.started_at_epoch_ms
+
+    turns.push({
+      turnNumber: agentTurnCount,
+      kind: 'agent',
+      llmStep,
+      toolSteps,
+      startedAtMs,
+      endedAtMs,
+      totalDurationMs: endedAtMs != null ? endedAtMs - startedAtMs : null,
+    })
+  }
+
+  // The last agent turn with no tool steps is the final-answer turn
+  if (turns.length > 0) {
+    const last = turns[turns.length - 1]
+    if (last.kind === 'agent' && last.toolSteps.length === 0) {
+      last.kind = 'final'
+    }
+  }
+
+  return turns
 }
 
 export function stepDurationMs(step: Step): number | null {
