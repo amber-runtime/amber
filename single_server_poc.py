@@ -11,9 +11,10 @@ GET /workflows or GET /workflows/{id} in Swagger and confirm there's no blocking
 ## Endpoints
   POST /run?topic=<topic>          → start workflow, returns workflow_id
   GET  /workflows                  → list all workflows (test concurrent read)
-  GET  /workflows/{workflow_id}    → workflow detail + steps
+  GET  /workflows/{workflow_id}    → workflow detail + enriched steps + trace events
   GET  /health
 """
+
 import os
 from contextlib import asynccontextmanager
 from typing import Any, Optional
@@ -25,18 +26,26 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from sdk import agentic_runner, get_steps, get_workflow, init, list_workflows, sleep, step, workflow
+from sdk import (
+    agentic_runner,
+    build_step_records,
+    fetch_agent_events_for_dashboard,
+    get_steps,
+    get_workflow,
+    init,
+    list_workflows,
+    sleep,
+    step,
+    workflow,
+)
 
 load_dotenv()
 
-DB_URL = (
-    os.environ.get("DB_URL")
-    or os.environ.get("DBOS_SYSTEM_DATABASE_URL")
-    or ""
-)
+DB_URL = os.environ.get("DB_URL") or os.environ.get("DBOS_SYSTEM_DATABASE_URL") or ""
 
 
 # ── Agent ─────────────────────────────────────────────────────────────────────
+
 
 @function_tool
 @step()
@@ -77,6 +86,7 @@ async def run_agent(topic: str) -> str:
 
 # ── Startup ───────────────────────────────────────────────────────────────────
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print(DB_URL)
@@ -90,10 +100,13 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
+)
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
+
 
 @app.get("/health")
 async def health() -> dict[str, str]:
@@ -120,9 +133,15 @@ async def get_workflows(
 
 @app.get("/workflows/{workflow_id}")
 async def get_workflow_detail(workflow_id: str) -> dict[str, Any]:
-    """Return workflow info and step list."""
+    """Return workflow info, enriched step list, and raw trace events."""
     wf = await get_workflow(workflow_id)
     if wf is None:
-        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Workflow {workflow_id!r} not found"
+        )
     steps = await get_steps(workflow_id)
-    return {"workflow": wf, "steps": steps}
+    agent_events = (
+        await fetch_agent_events_for_dashboard(workflow_id, DB_URL) if DB_URL else []
+    )
+    step_records = build_step_records(steps, agent_events)
+    return {"workflow": wf, "steps": step_records, "events": agent_events}
