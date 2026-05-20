@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from dbos import DBOS, DBOSConfig
+from dbos_openai_agents import DBOSRunner
 
 
 def workflow(
