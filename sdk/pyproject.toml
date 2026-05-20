@@ -5,6 +5,7 @@ requires-python = ">=3.11"
 dependencies = [
     "dbos>=1.0",
     "dbos-openai-agents>=0.3.0",
+    "psycopg2-binary>=2.9.12",
 ]
 
 [build-system]
