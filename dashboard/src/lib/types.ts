@@ -15,6 +15,8 @@ export interface Step {
   tokens_in: number | null
   tokens_out: number | null
   provider_response_id: string | null
+  llm_input: unknown[] | null
+  llm_output: unknown[] | null
   tool_name: string | null
   tool_args: unknown
   tool_match_status: string | null

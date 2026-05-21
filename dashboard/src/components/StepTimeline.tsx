@@ -18,11 +18,7 @@ export function StepTimeline({ workflow, steps }: Props) {
   const lastStepEnd = steps.length > 0
     ? (steps[steps.length - 1].completed_at_epoch_ms ?? steps[steps.length - 1].started_at_epoch_ms)
     : workflowStart
-  const workflowEnd = Math.max(
-    workflow.updated_at,
-    lastStepEnd,
-    workflowStart + 5000,
-  )
+  const workflowEnd = Math.max(lastStepEnd, workflowStart + 5000)
 
   if (steps.length === 0) {
     return (

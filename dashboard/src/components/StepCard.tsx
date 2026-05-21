@@ -74,6 +74,22 @@ function LLMStepBody({ step }: { step: StepWithTiming }) {
           </span>
         )}
       </div>
+      {step.llm_input != null && (
+        <div>
+          <p className="text-slate-400 text-xs uppercase tracking-wide font-medium mb-2">LLM Input</p>
+          <pre className="bg-slate-950 border border-slate-800 rounded p-3 text-xs text-slate-300 overflow-x-auto max-h-64 overflow-y-auto">
+            {JSON.stringify(step.llm_input, null, 2)}
+          </pre>
+        </div>
+      )}
+      {step.llm_output != null && (
+        <div>
+          <p className="text-slate-400 text-xs uppercase tracking-wide font-medium mb-2">LLM Output</p>
+          <pre className="bg-slate-950 border border-slate-800 rounded p-3 text-xs text-slate-300 overflow-x-auto max-h-64 overflow-y-auto">
+            {JSON.stringify(step.llm_output, null, 2)}
+          </pre>
+        </div>
+      )}
       {step.tool_args != null && (
         <div className="flex items-start gap-2 text-sm">
           <span className="text-slate-500 mt-0.5 shrink-0">→</span>
@@ -102,7 +118,9 @@ function ToolStepBody({ step }: { step: StepWithTiming }) {
   }
   return (
     <p className="text-sm text-slate-500 italic">
-      Tool output not available{step.tool_match_status === 'ambiguous' ? ' (multiple calls — ambiguous match)' : ''}.
+      {step.tool_match_status === 'ambiguous'
+        ? 'Tool was called successfully, but multiple invocations occurred in close succession and the result couldn’t be linked to this specific step.'
+        : 'Tool output not available.'}
     </p>
   )
 }
