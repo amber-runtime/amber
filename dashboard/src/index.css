@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+      'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  }
+  code, pre, .font-mono {
+    font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo,
+      Consolas, 'DejaVu Sans Mono', monospace;
+  }
+}
+
+/* Prose styles for react-markdown output */
+.prose h1 { @apply text-xl font-bold mt-4 mb-2; }
+.prose h2 { @apply text-lg font-semibold mt-3 mb-1.5; }
+.prose h3 { @apply text-base font-semibold mt-2 mb-1; }
+.prose p  { @apply mb-2 leading-relaxed; }
+.prose ul { @apply list-disc pl-5 mb-2 space-y-0.5; }
+.prose ol { @apply list-decimal pl-5 mb-2 space-y-0.5; }
+.prose li { @apply leading-relaxed; }
+.prose strong { @apply font-semibold; }
+.prose em { @apply italic; }
+.prose code { @apply font-mono text-sm bg-gray-100 px-1 py-0.5 rounded; }
+.prose pre  { @apply font-mono text-sm bg-gray-100 p-3 rounded-md overflow-x-auto my-2; }
+.prose blockquote { @apply border-l-4 border-gray-300 pl-3 text-gray-600 italic my-2; }
+.prose a { @apply text-blue-600 underline hover:text-blue-800; }
+.prose hr { @apply border-gray-200 my-3; }
