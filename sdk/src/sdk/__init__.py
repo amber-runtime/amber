@@ -1,12 +1,14 @@
 from .decorators import (
     RegisteredAgent,
-    agent,
+    register_agent,
     agentic_runner,
+    ensure_initialized,
     get_registered_agent,
     init,
     list_registered_agents,
     logger,
     sleep,
+    start_agent,
     step,
     workflow,
 )
@@ -22,11 +24,13 @@ from .queries import (
 
 __all__ = [
     "RegisteredAgent",
-    "agent",
+    "register_agent",
     "workflow",
     "step",
     "sleep",
     "init",
+    "ensure_initialized",
+    "start_agent",
     "logger",
     "agentic_runner",
     "get_registered_agent",

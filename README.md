@@ -11,10 +11,10 @@ Setup
   uv run tests/research_agent.py "your topic here"
 
   Start the backend
-  uv run uvicorn dashboard_backend:app --reload
+  uv run uvicorn dashboard.dashboard_backend:app --reload --port 8001
 
 Test
-   Open http://localhost:8000/docs
+   Open http://localhost:8001/docs
    GET /workflows?limit=1   → grab the workflow_uuid
    GET /workflows/{uuid}    → see the full JOIN with LLM + step data
 
@@ -98,6 +98,9 @@ from sdk import init, workflow, step, sleep, agentic_runner
 | `@step()` | Mark a function as a checkpointed step |
 | `sleep(seconds)` | Durable sleep — skips elapsed time on crash recovery |
 | `agentic_runner(agent, prompt)` | Run an OpenAI Agents SDK agent through DBOS |
+
+Agent workflows are registered when their modules are imported. In an app,
+import the modules that define `@register_agent` workflows during startup.
 
 **Writing a new test:**
 

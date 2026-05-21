@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 # ── DBOS API wrappers ─────────────────────────────────────────────────────────
 
-def _wf_to_dict(w) -> dict:
-    return {
+def _wf_to_dict(w, *, include_output: bool = False) -> dict:
+    record = {
         "workflow_id":       w.workflow_id,
         "name":              w.name,
         "status":            w.status,
@@ -24,6 +24,10 @@ def _wf_to_dict(w) -> dict:
         "updated_at":        w.updated_at,
         "recovery_attempts": None,  # not exposed in WorkflowStatus
     }
+    if include_output:
+        output = getattr(w, "output", None)
+        record["output"] = None if output is None else str(output)
+    return record
 
 
 async def list_workflows(status: Optional[str] = None, limit: int = 50) -> list[dict]:
@@ -40,9 +44,9 @@ async def get_workflow(workflow_uuid: str) -> Optional[dict]:
     """Return a single workflow by ID, or None if not found."""
     from dbos import DBOS
     results = await DBOS.list_workflows_async(
-        workflow_ids=[workflow_uuid], load_input=False, load_output=False
+        workflow_ids=[workflow_uuid], load_input=False, load_output=True
     )
-    return _wf_to_dict(results[0]) if results else None
+    return _wf_to_dict(results[0], include_output=True) if results else None
 
 
 async def get_steps(workflow_uuid: str) -> list[dict]:

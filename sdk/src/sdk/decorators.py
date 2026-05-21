@@ -1,6 +1,7 @@
 import asyncio
 import functools
 import os
+import threading
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -17,6 +18,8 @@ class RegisteredAgent:
 
 
 _registered_agents: dict[str, RegisteredAgent] = {}
+_init_lock = threading.Lock()
+_initialized = False
 
 
 def workflow(
@@ -27,7 +30,7 @@ def workflow(
     return DBOS.workflow(name=name, max_recovery_attempts=max_recovery_attempts)
 
 
-def agent(
+def register_agent(
     *,
     name: str,
     max_recovery_attempts: int | None = 5,
@@ -60,10 +63,7 @@ def get_registered_agent(name: str) -> RegisteredAgent:
 
 
 def list_registered_agents() -> list[RegisteredAgent]:
-    return [
-        _registered_agents[name]
-        for name in sorted(_registered_agents)
-    ]
+    return [_registered_agents[name] for name in sorted(_registered_agents)]
 
 
 def step(
@@ -130,32 +130,54 @@ logger = DBOS.logger
 
 
 def init(
-    name: str,
+    name: str | None = None,
     db_url: str | None = None,
     conductor_key: str | None = None,
 ) -> None:
+    global _initialized
+
+    resolved_name = name or os.environ.get(
+        "CHECKPOINT_RUNTIME_NAME", "checkpoint-runtime"
+    )
     resolved_db = (
-        db_url
-        or os.environ.get("DB_URL")
-        or os.environ.get("DBOS_SYSTEM_DATABASE_URL")
-        or os.environ.get("CHECKPOINT_DB_URL")
+        db_url or os.environ.get("DB_URL") or os.environ.get("DBOS_SYSTEM_DATABASE_URL")
     )
     resolved_conductor_key = conductor_key or os.environ.get("CHECKPOINT_CONDUCTOR_KEY")
 
     config: DBOSConfig = {
-        "name": name,
+        "name": resolved_name,
         "system_database_url": resolved_db,
     }
     if resolved_conductor_key is not None:
         config["conductor_key"] = resolved_conductor_key
 
-    DBOS(config=config)
-    DBOS.launch()
+    with _init_lock:
+        if _initialized:
+            return
 
-    if resolved_db and resolved_db.startswith("postgresql"):
-        from sdk.tracing import register_checkpoint_tracing_processor
+        DBOS(config=config)
+        DBOS.launch()
+        _initialized = True
 
-        register_checkpoint_tracing_processor(resolved_db)
+        if resolved_db and resolved_db.startswith("postgresql"):
+            from sdk.tracing import register_checkpoint_tracing_processor
+
+            register_checkpoint_tracing_processor(resolved_db)
+
+
+def ensure_initialized(
+    *,
+    name: str | None = None,
+    db_url: str | None = None,
+    conductor_key: str | None = None,
+) -> None:
+    init(name=name, db_url=db_url, conductor_key=conductor_key)
+
+
+async def start_agent(name: str, input: str):
+    ensure_initialized()
+    registered_agent = get_registered_agent(name)
+    return await DBOS.start_workflow_async(registered_agent.workflow, input)
 
 
 def _log_step_started(step_name: str) -> float:
