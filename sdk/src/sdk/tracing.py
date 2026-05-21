@@ -55,6 +55,8 @@ CREATE TABLE IF NOT EXISTS agent_events (
     tokens_in            INTEGER      NULL,
     tokens_out           INTEGER      NULL,
     provider_response_id TEXT         NULL,
+    llm_input            JSONB        NULL,
+    llm_output           JSONB        NULL,
     tool_name            TEXT         NULL,
     tool_args            JSONB        NULL,
     tool_result          TEXT         NULL,
@@ -148,6 +150,7 @@ def _write_agent_event(db_url: str, record: dict[str, Any]) -> None:
                 INSERT INTO agent_events (
                     event_key, span_id, workflow_id, step_id, event_type,
                     model, tokens_in, tokens_out, provider_response_id,
+                    llm_input, llm_output,
                     tool_name, tool_args, tool_result,
                     from_agent, to_agent
                 ) VALUES %s
@@ -163,6 +166,8 @@ def _write_agent_event(db_url: str, record: dict[str, Any]) -> None:
                     record.get("tokens_in"),
                     record.get("tokens_out"),
                     record.get("provider_response_id"),
+                    psycopg2.extras.Json(record["llm_input"]) if record.get("llm_input") is not None else None,
+                    psycopg2.extras.Json(record["llm_output"]) if record.get("llm_output") is not None else None,
                     record.get("tool_name"),
                     psycopg2.extras.Json(record["tool_args"]) if record.get("tool_args") is not None else None,
                     record.get("tool_result"),
@@ -232,6 +237,8 @@ class CheckpointTracingProcessor(TracingProcessor):
                     "tokens_in":            usage.get("input_tokens"),
                     "tokens_out":           usage.get("output_tokens"),
                     "provider_response_id": data.response.id if data.response else None,
+                    "llm_input":            _to_json_compatible(data.input),
+                    "llm_output":           _to_json_compatible(getattr(data.response, "output", None)),
                 }
 
             elif isinstance(data, FunctionSpanData):
@@ -313,3 +320,14 @@ def _parse_json_or_str(value: str | None) -> Any:
         return json.loads(value)
     except (json.JSONDecodeError, TypeError):
         return value
+
+
+def _to_json_compatible(value: Any) -> Any:
+    """Convert the limited OpenAI/Pydantic shapes used by llm_input/llm_output."""
+    if value is None:
+        return None
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json", exclude_unset=True)
+    if isinstance(value, list):
+        return [_to_json_compatible(item) for item in value]
+    return value

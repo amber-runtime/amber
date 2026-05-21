@@ -66,6 +66,8 @@ class StepRecord(BaseModel):
     tokens_in: Optional[int]
     tokens_out: Optional[int]
     provider_response_id: Optional[str]
+    llm_input: Any | None = None
+    llm_output: Any | None = None
     tool_name: Optional[str]
     tool_args: Any | None
     tool_match_status: Optional[str] = None
@@ -79,6 +81,8 @@ class AgentEvent(BaseModel):
     tokens_in: Optional[int]
     tokens_out: Optional[int]
     provider_response_id: Optional[str]
+    llm_input: Any | None = None
+    llm_output: Any | None = None
     tool_name: Optional[str]
     tool_args: Any | None
     tool_result: Optional[str]

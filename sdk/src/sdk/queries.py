@@ -69,6 +69,7 @@ def fetch_agent_events(workflow_id: str, db_url: str) -> list[dict]:
                 """
                 SELECT span_id, step_id, event_type,
                        model, tokens_in, tokens_out, provider_response_id,
+                       llm_input, llm_output,
                        tool_name, tool_args, tool_result,
                        from_agent, to_agent, captured_at
                 FROM agent_events
@@ -169,6 +170,8 @@ def build_step_records(
             "tokens_in":             llm.get("tokens_in"),
             "tokens_out":            llm.get("tokens_out"),
             "provider_response_id":  llm.get("provider_response_id"),
+            "llm_input":             llm.get("llm_input"),
+            "llm_output":            llm.get("llm_output"),
             # Tool fields — populated for tool step rows
             "tool_name":             tool.get("tool_name") or fn_name,
             "tool_args":             tool.get("tool_args"),

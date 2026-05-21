@@ -76,6 +76,27 @@ class QueryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(records[0]["step_id"])
         self.assertIsNone(records[0]["function_name"])
 
+    def test_build_step_records_carries_llm_raw_io(self):
+        steps = [{"function_id": 1, "function_name": "_model_call_step", "error": None}]
+        events = [
+            {
+                "span_id": "span-1",
+                "step_id": 1,
+                "event_type": "llm_response",
+                "model": "gpt-5.4-mini",
+                "tokens_in": 10,
+                "tokens_out": 5,
+                "provider_response_id": "resp_123",
+                "llm_input": [{"role": "user", "content": [{"type": "input_text", "text": "hi"}]}],
+                "llm_output": [{"type": "message", "id": "msg_123"}],
+            }
+        ]
+
+        records = queries.build_step_records(steps, events)
+
+        self.assertEqual(records[0]["llm_input"], events[0]["llm_input"])
+        self.assertEqual(records[0]["llm_output"], events[0]["llm_output"])
+
     async def test_fetch_agent_events_for_dashboard_swallows_read_failures(self):
         with (
             mock.patch.object(queries, "fetch_agent_events_async", side_effect=RuntimeError("boom")),
@@ -128,13 +149,21 @@ def install_tracing_stubs():
             self.output = output
 
     class GenerationSpanData:
-        pass
+        def __init__(self, input=None, output=None, model=None, model_config=None, usage=None):
+            self.input = input
+            self.output = output
+            self.model = model
+            self.model_config = model_config
+            self.usage = usage
 
     class HandoffSpanData:
         pass
 
     class ResponseSpanData:
-        pass
+        def __init__(self, response=None, input=None, usage=None):
+            self.response = response
+            self.input = input
+            self.usage = usage
 
     class DBOS:
         workflow_id = "workflow-1"
@@ -154,7 +183,13 @@ def install_tracing_stubs():
     sys.modules["agents.tracing.span_data"] = span_data
     sys.modules["dbos"] = dbos
 
-    return FunctionSpanData, DBOS, tracing_pkg.add_trace_processor
+    return (
+        FunctionSpanData,
+        GenerationSpanData,
+        ResponseSpanData,
+        DBOS,
+        tracing_pkg.add_trace_processor,
+    )
 
 
 def install_decorator_stubs():
@@ -430,7 +465,13 @@ class DemoRegistrationTests(unittest.TestCase):
 
 class TracingTests(unittest.TestCase):
     def setUp(self):
-        self.FunctionSpanData, self.DBOS, self.add_trace_processor = install_tracing_stubs()
+        (
+            self.FunctionSpanData,
+            self.GenerationSpanData,
+            self.ResponseSpanData,
+            self.DBOS,
+            self.add_trace_processor,
+        ) = install_tracing_stubs()
         self.tracing = load_module("tracing_under_test", "sdk/src/sdk/tracing.py")
 
     def test_tool_outputs_preserve_falsy_values(self):
@@ -479,6 +520,50 @@ class TracingTests(unittest.TestCase):
 
         record = write.call_args.args[1]
         self.assertEqual(record["step_id"], 11)
+
+    def test_response_span_persists_llm_raw_io(self):
+        processor = self.tracing.CheckpointTracingProcessor("postgresql://db")
+        response = types.SimpleNamespace(
+            id="resp_123",
+            model="gpt-5.4-mini",
+            output=[{"type": "message", "id": "msg_123"}],
+        )
+        span = types.SimpleNamespace(
+            span_id="span-1",
+            span_data=self.ResponseSpanData(
+                input=[{"role": "user", "content": [{"type": "input_text", "text": "hi"}]}],
+                response=response,
+                usage={"input_tokens": 10, "output_tokens": 5},
+            ),
+        )
+
+        with mock.patch.object(self.tracing, "_write_agent_event") as write:
+            processor.on_span_end(span)
+
+        record = write.call_args.args[1]
+        self.assertEqual(record["llm_input"], span.span_data.input)
+        self.assertEqual(record["llm_output"], response.output)
+        self.assertEqual(record["provider_response_id"], "resp_123")
+
+    def test_to_json_compatible_handles_model_dump_and_lists(self):
+        class FakeModel:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def model_dump(self, mode="json", exclude_unset=True):
+                self.asserted_mode = mode
+                self.asserted_exclude_unset = exclude_unset
+                return self.payload
+
+        model = FakeModel({"type": "message", "id": "msg_123"})
+        converted = self.tracing._to_json_compatible([model, {"raw": True}, None])
+
+        self.assertEqual(
+            converted,
+            [{"type": "message", "id": "msg_123"}, {"raw": True}, None],
+        )
+        self.assertEqual(model.asserted_mode, "json")
+        self.assertTrue(model.asserted_exclude_unset)
 
     def test_connect_kwargs_include_short_timeouts(self):
         kwargs = self.tracing._connect_kwargs()
