@@ -54,8 +54,26 @@ function makeSearchWebOutput(topic: string, turn: number): string {
     .join('\n---\n')
 }
 
-function makeFinalLLMOutput(topic: string): LLMOutput {
-  const answer = `## ${topic}\n\nResearch complete. Here is a summary of findings:\n\n### Key Concepts\n\n- **Core idea**: ${topic} addresses a fundamental challenge in modern software systems\n- **Adoption**: Widely adopted across the industry with multiple mature implementations\n- **Trade-offs**: Each approach optimizes for different constraints — latency, consistency, or operational simplicity\n\n### Comparison\n\n| Approach | Strengths | Weaknesses |\n|----------|-----------|------------|\n| Option A | Simple, proven | Limited at scale |\n| Option B | High performance | Operational complexity |\n| Option C | Flexible | Higher resource cost |\n\n### Recommendations\n\nStart with the simplest option that satisfies your requirements. Introduce complexity only when you have measured a concrete bottleneck that simpler approaches cannot solve.`
+const WEATHER_CONDITIONS = [
+  { desc: 'Partly cloudy', wind: 'light winds from the southwest', precip: 'No precipitation expected' },
+  { desc: 'Mostly sunny', wind: 'calm winds', precip: 'No precipitation expected' },
+  { desc: 'Overcast', wind: 'moderate winds from the northwest', precip: 'Slight chance of showers later' },
+  { desc: 'Clear skies', wind: 'gentle breeze from the east', precip: 'No precipitation expected' },
+  { desc: 'Mostly cloudy', wind: 'light winds from the north', precip: 'Isolated showers possible' },
+]
+
+function makeWeatherAnswer(location: string): string {
+  const cond = WEATHER_CONDITIONS[Math.floor(Math.random() * WEATHER_CONDITIONS.length)]
+  const tempF = 55 + Math.floor(Math.random() * 35)
+  const highF = tempF + 4 + Math.floor(Math.random() * 8)
+  const humidity = 40 + Math.floor(Math.random() * 40)
+  return `## Weather Report: ${location}\n\nCurrently **${tempF}°F** in ${location}. ${cond.desc} with ${cond.wind}.\n\nExpected high of **${highF}°F** today. ${cond.precip}. Humidity at ${humidity}%.`
+}
+
+function makeFinalLLMOutput(topic: string, agentId: string): LLMOutput {
+  const answer = agentId === 'weather_agent'
+    ? makeWeatherAnswer(topic)
+    : `## ${topic}\n\nResearch complete. Here is a summary of findings:\n\n### Key Concepts\n\n- **Core idea**: ${topic} addresses a fundamental challenge in modern software systems\n- **Adoption**: Widely adopted across the industry with multiple mature implementations\n- **Trade-offs**: Each approach optimizes for different constraints — latency, consistency, or operational simplicity\n\n### Comparison\n\n| Approach | Strengths | Weaknesses |\n|----------|-----------|------------|\n| Option A | Simple, proven | Limited at scale |\n| Option B | High performance | Operational complexity |\n| Option C | Flexible | Higher resource cost |\n\n### Recommendations\n\nStart with the simplest option that satisfies your requirements. Introduce complexity only when you have measured a concrete bottleneck that simpler approaches cannot solve.`
   return {
     model: 'gpt-5.4-mini-2026-03-17',
     output: [
@@ -187,7 +205,7 @@ export function runMockWorkflow(
       {
         delay: dur(FINAL_COMPLETE),
         fn: () => {
-          completeLast(makeFinalLLMOutput(topic))
+          completeLast(makeFinalLLMOutput(topic, agentDef.id))
           patchInfo({ status: 'SUCCESS' }, { status: 'SUCCESS' })
         },
       },
@@ -224,7 +242,7 @@ export function runMockWorkflow(
       {
         delay: dur(FINAL_COMPLETE),
         fn: () => {
-          completeLast(makeFinalLLMOutput(topic))
+          completeLast(makeFinalLLMOutput(topic, agentDef.id))
           patchInfo({ status: 'SUCCESS' }, { status: 'SUCCESS' })
         },
       },

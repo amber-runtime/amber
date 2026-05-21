@@ -31,6 +31,8 @@ const TURN_BAND: Record<Turn['kind'], (even: boolean) => string> = {
 }
 
 const TICK_COUNT = 5
+const ROW_HEIGHT = 30
+const ROW_GAP = 2
 
 export function GanttStrip({
   steps,
@@ -45,6 +47,8 @@ export function GanttStrip({
   const ticks = Array.from({ length: TICK_COUNT + 1 }, (_, i) =>
     Math.round((totalDuration * i) / TICK_COUNT),
   )
+
+  const chartHeight = Math.max(steps.length, 1) * (ROW_HEIGHT + ROW_GAP) - ROW_GAP
 
   let agentIndex = 0
 
@@ -73,9 +77,9 @@ export function GanttStrip({
           })}
         </div>
 
-        {/* Chart area — single horizontal track; all bars share the same row */}
-        <div className="relative" style={{ height: '32px' }}>
-          {/* Turn background bands */}
+        {/* Chart area — one row per step, staircase layout */}
+        <div className="relative" style={{ height: `${chartHeight}px` }}>
+          {/* Turn background bands — full chart height */}
           {turns.map((turn) => {
             const bandStart = turn.startedAtMs
             const bandEnd = turn.endedAtMs ?? workflowEnd
@@ -129,12 +133,13 @@ export function GanttStrip({
             )
           })}
 
-          {/* Step bars — all on the same row, positioned by time */}
-          {steps.map((step) => {
+          {/* Step bars — one per row, staggered down-right */}
+          {steps.map((step, index) => {
             const kind = getStepKind(step.function_name)
             const isActive = step.function_id === activeStepId
             const hasError = !!step.error
 
+            const topPx = index * (ROW_HEIGHT + ROW_GAP)
             const leftPct =
               ((step.started_at_epoch_ms - workflowStart) / totalDuration) * 100
 
@@ -158,8 +163,8 @@ export function GanttStrip({
             return (
               <div
                 key={step.function_id}
-                className="absolute top-0 bottom-0 z-[2] group cursor-pointer"
-                style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                className="absolute z-[2] group cursor-pointer"
+                style={{ top: `${topPx}px`, height: `${ROW_HEIGHT}px`, left: `${leftPct}%`, width: `${widthPct}%` }}
                 onClick={() => onStepClick(step.function_id)}
                 title={tooltip}
               >
