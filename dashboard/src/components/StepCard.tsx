@@ -50,22 +50,8 @@ function LLMStepBody({ step }: { step: Step }) {
           </span>
         )}
       </div>
-      {step.llm_input != null && (
-        <div>
-          <p className="text-slate-400 text-xs uppercase tracking-wide font-medium mb-2">LLM Input</p>
-          <pre className="bg-slate-950 border border-slate-800 rounded p-3 text-xs text-slate-300 overflow-x-auto max-h-64 overflow-y-auto">
-            {JSON.stringify(step.llm_input, null, 2)}
-          </pre>
-        </div>
-      )}
-      {step.llm_output != null && (
-        <div>
-          <p className="text-slate-400 text-xs uppercase tracking-wide font-medium mb-2">LLM Output</p>
-          <pre className="bg-slate-950 border border-slate-800 rounded p-3 text-xs text-slate-300 overflow-x-auto max-h-64 overflow-y-auto">
-            {JSON.stringify(step.llm_output, null, 2)}
-          </pre>
-        </div>
-      )}
+      {step.llm_input != null && <LLMMessages value={step.llm_input} label="LLM Input" />}
+      {step.llm_output != null && <LLMMessages value={step.llm_output} label="LLM Output" />}
       {step.tool_args != null && (
         <div className="flex items-start gap-2 text-sm">
           <span className="text-slate-500 mt-0.5 shrink-0">→</span>
@@ -75,7 +61,7 @@ function LLMStepBody({ step }: { step: Step }) {
               {step.tool_name ?? 'tool'}
             </code>
             <pre className="mt-1.5 text-xs bg-slate-800 rounded p-2 overflow-x-auto text-slate-300 font-mono leading-relaxed">
-              {JSON.stringify(step.tool_args, null, 2)}
+              {prettyOutput(step.tool_args)}
             </pre>
           </span>
         </div>
@@ -94,7 +80,7 @@ function ToolStepBody({ step }: { step: Step }) {
         <div>
           <p className="text-slate-400 text-xs uppercase tracking-wide font-medium mb-1">Input</p>
           <pre className="text-xs font-mono bg-slate-800 rounded p-3 overflow-x-auto text-slate-300 leading-relaxed">
-            {JSON.stringify(step.tool_args, null, 2)}
+            {prettyOutput(step.tool_args)}
           </pre>
         </div>
       )}
@@ -119,10 +105,95 @@ function SleepBody({ step }: { step: Step }) {
   )
 }
 
+// Extract readable text from an LLM content field.
+// Content can be a plain string or an array of blocks like { type, text }.
+function extractContentText(content: unknown): string | null {
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) {
+    const parts = content
+      .map((b) => (b && typeof b === 'object' && 'text' in b ? String((b as Record<string, unknown>).text) : null))
+      .filter(Boolean)
+    return parts.length > 0 ? parts.join('\n') : null
+  }
+  return null
+}
+
+// Render an array of LLM messages as { role, text } pairs when possible.
+// Returns null if the value doesn't look like a message array.
+function parseLLMMessages(value: unknown): { role: string; text: string }[] | null {
+  if (!Array.isArray(value)) return null
+  const messages = value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const { role, content } = item as Record<string, unknown>
+    if (typeof role !== 'string') return []
+    const text = extractContentText(content)
+    return text != null ? [{ role, text }] : []
+  })
+  return messages.length > 0 ? messages : null
+}
+
+function LLMMessages({ value, label }: { value: unknown; label: string }) {
+  const messages = parseLLMMessages(value)
+  if (!messages) {
+    return (
+      <div>
+        <p className="text-slate-400 text-xs uppercase tracking-wide font-medium mb-2">{label}</p>
+        <pre className="bg-slate-950 border border-slate-800 rounded p-3 text-xs text-slate-300 overflow-x-auto max-h-64 overflow-y-auto">
+          {prettyOutput(value)}
+        </pre>
+      </div>
+    )
+  }
+  return (
+    <div>
+      <p className="text-slate-400 text-xs uppercase tracking-wide font-medium mb-2">{label}</p>
+      <div className="space-y-2">
+        {messages.map(({ role, text }, i) => (
+          <div key={i} className="bg-slate-950 border border-slate-800 rounded p-3 text-xs">
+            <span className="text-slate-500 font-mono uppercase text-[10px] tracking-wider">{role}</span>
+            <pre className="mt-1.5 text-slate-300 whitespace-pre-wrap leading-relaxed">{text}</pre>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function deepParse(value: unknown): unknown {
+  if (typeof value === 'string') {
+    try { return deepParse(JSON.parse(value)) } catch { return value }
+  }
+  if (Array.isArray(value)) return value.map(deepParse)
+  if (value !== null && typeof value === 'object')
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, deepParse(v)])
+    )
+  return value
+}
+
+function prettyOutput(value: unknown): string {
+  return JSON.stringify(deepParse(value), null, 2)
+}
+
+function StepOutputBody({ step }: { step: Step }) {
+  if (step.step_output == null) {
+    return <p className="text-sm text-slate-500 italic">No output recorded.</p>
+  }
+  return (
+    <div>
+      <p className="text-slate-400 text-xs uppercase tracking-wide font-medium mb-1">Output</p>
+      <pre className="text-xs font-mono bg-slate-800 rounded p-3 overflow-x-auto text-slate-300 leading-relaxed max-h-48 overflow-y-auto">
+        {prettyOutput(step.step_output)}
+      </pre>
+    </div>
+  )
+}
+
 function ExpandedBody({ step }: { step: Step }) {
   const kind = getStepKind(step)
   if (kind === 'llm') return <LLMStepBody step={step} />
   if (kind === 'sleep') return <SleepBody step={step} />
+  if (kind === 'other') return <StepOutputBody step={step} />
   return <ToolStepBody step={step} />
 }
 

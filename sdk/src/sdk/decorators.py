@@ -142,7 +142,7 @@ def init(
     resolved_db = (
         db_url or os.environ.get("DB_URL") or os.environ.get("DBOS_SYSTEM_DATABASE_URL")
     )
-    resolved_conductor_key = conductor_key or os.environ.get("CHECKPOINT_CONDUCTOR_KEY")
+    resolved_conductor_key = conductor_key or os.environ.get("CHECKPOINT_CONDUCTOR_KEY") or os.environ.get("DBOS_CONDUCTOR_KEY")
 
     config: DBOSConfig = {
         "name": resolved_name,

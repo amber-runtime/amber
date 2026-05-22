@@ -11,17 +11,17 @@ interface Props {
 }
 
 const KIND_COLOR: Record<ReturnType<typeof getStepKind>, string> = {
-  llm: 'bg-slate-500 hover:bg-slate-400',
+  llm: 'bg-sky-500 hover:bg-sky-400',
   tool: 'bg-emerald-500 hover:bg-emerald-400',
   sleep: 'bg-slate-700 hover:bg-slate-600',
-  other: 'bg-sky-500 hover:bg-sky-400',
+  other: 'bg-slate-500 hover:bg-slate-400',
 }
 
 const KIND_ACTIVE: Record<ReturnType<typeof getStepKind>, string> = {
-  llm: 'bg-slate-400',
+  llm: 'bg-sky-400',
   tool: 'bg-emerald-400',
   sleep: 'bg-slate-600',
-  other: 'bg-sky-400',
+  other: 'bg-slate-400',
 }
 
 const TICK_COUNT = 5
@@ -171,10 +171,15 @@ export function GanttStrip({
 
         {/* Legend */}
         <div className="flex items-center gap-4 mt-3 pt-2 border-t border-slate-800">
-          {(['llm', 'tool', 'sleep'] as const).map((kind) => (
+          {([
+            ['llm',   'LLM call'],
+            ['tool',  'Tool call'],
+            ['sleep', 'Sleep'],
+            ['other', 'DBOS step'],
+          ] as const).map(([kind, label]) => (
             <span key={kind} className="flex items-center gap-1.5 text-xs text-slate-500">
               <span className={`w-3 h-3 rounded ${KIND_COLOR[kind].split(' ')[0]}`} />
-              {kind === 'llm' ? 'LLM call' : kind === 'tool' ? 'Tool call' : 'Sleep'}
+              {label}
             </span>
           ))}
           <span className="flex items-center gap-1.5 text-xs text-slate-500">
