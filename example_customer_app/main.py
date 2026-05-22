@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 # Import agent modules so their @register_agent workflows are registered.
 import user_agents.multi_agent_demo
+import user_agents.queued_multi_agent_demo  # noqa: F401
 import user_agents.single_agent_demo  # noqa: F401
 from sdk import ensure_initialized, list_registered_agents, start_agent
 
@@ -21,7 +22,13 @@ load_dotenv()
 
 
 class RunRequest(BaseModel):
-    agent: str = Field(examples=["research-assistant", "travel-concierge"])
+    agent: str = Field(
+        examples=[
+            "research-assistant",
+            "travel-concierge",
+            "research-handoff-agent",
+        ]
+    )
     input: str
 
 
@@ -95,6 +102,14 @@ RUN_REQUEST_EXAMPLES = {
         "value": {
             "agent": "research-assistant",
             "input": "research Tokyo travel trends",
+        },
+    },
+    "research-handoff-agent": {
+        "summary": "Research handoff agent",
+        "description": "Run the handoff-based multi-agent research demo.",
+        "value": {
+            "agent": "research-handoff-agent",
+            "input": user_agents.queued_multi_agent_demo.SAMPLE_MESSAGE,
         },
     },
 }
