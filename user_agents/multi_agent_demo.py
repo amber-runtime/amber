@@ -153,10 +153,58 @@ def choose_guarded_next_action(raw_action: str, completed: set[str]) -> str:
     return action
 
 
+def _format_place(place: str, *, uppercase_three_letter_code: bool = False) -> str:
+    words = re.sub(r"\s+", " ", place.strip(" ,.;:!?")).split()
+    if uppercase_three_letter_code and len(words) == 1 and re.fullmatch(r"[A-Za-z]{3}", words[0]):
+        return words[0].upper()
+
+    formatted = []
+    for word in words:
+        normalized = word.upper()
+        if normalized in {"DC", "NYC", "LA", "SF"}:
+            formatted.append(normalized)
+        else:
+            formatted.append(word[:1].upper() + word[1:].lower())
+    return " ".join(formatted)
+
+
+def _simple_origin(request: str) -> str | None:
+    stop_words = (
+        r"to|for|departing|returning|budget|under|around|with|on|between|"
+        r"starting|leaving|arriving|in|by"
+    )
+    match = re.search(
+        rf"\bfrom\s+([A-Za-z][A-Za-z\s]+?)(?:\s+(?:{stop_words})\b|,|\.|$)",
+        request,
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+
+    origin = _format_place(match.group(1), uppercase_three_letter_code=True)
+    return origin or None
+
+
 def _simple_destination(request: str) -> str:
-    match = re.search(r"\bto\s+([A-Z][A-Za-z\s]+?)(?:\s+from|\s+for|\s+departing|,|\.|$)", request)
-    if match:
-        return match.group(1).strip()
+    stop_words = (
+        r"from|for|departing|returning|budget|under|around|with|on|between|"
+        r"starting|leaving|arriving|in|by"
+    )
+    destination_patterns = [
+        rf"\b(?:trip|travel|vacation|holiday|journey|flight|flights)\s+to\s+"
+        rf"([A-Za-z][A-Za-z\s]+?)(?:\s+(?:{stop_words})\b|,|\.|$)",
+        rf"\b(?:visit|visiting)\s+"
+        rf"([A-Za-z][A-Za-z\s]+?)(?:\s+(?:{stop_words})\b|,|\.|$)",
+        rf"\bto\s+([A-Za-z][A-Za-z\s]+?)(?:\s+(?:{stop_words})\b|,|\.|$)",
+    ]
+
+    for pattern in destination_patterns:
+        match = re.search(pattern, request, re.IGNORECASE)
+        if match:
+            destination = _format_place(match.group(1))
+            if destination:
+                return destination
+
     if re.search(r"\btokyo\b", request, re.IGNORECASE):
         return "Tokyo"
     return "Tokyo"
@@ -176,9 +224,9 @@ def normalize_travel_request(request: str) -> dict[str, Any]:
         "original_request": request,
     }
 
-    origin_match = re.search(r"\bfrom\s+([A-Z]{3})\b", request, re.IGNORECASE)
-    if origin_match:
-        normalized["origin"] = origin_match.group(1).upper()
+    origin = _simple_origin(request)
+    if origin:
+        normalized["origin"] = origin
 
     dates = re.findall(r"\b20\d{2}-\d{2}-\d{2}\b", request)
     if dates:

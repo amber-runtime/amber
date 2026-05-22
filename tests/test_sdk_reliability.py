@@ -405,6 +405,48 @@ class DemoRegistrationTests(unittest.TestCase):
         self.assertEqual(normalized["budget"], 5500)
         self.assertEqual(normalized["travel_style"], "luxury")
 
+    def test_travel_request_normalizer_respects_edited_destination_prompts(self):
+        demo = load_module("multi_agent_demo_destinations_under_test", "user_agents/multi_agent_demo.py")
+
+        examples = {
+            "booking your trip to washington": "Washington",
+            "I want to visit Washington": "Washington",
+            "Book me a trip to Washington DC from SFO for 2 people": "Washington DC",
+        }
+
+        for request, expected_destination in examples.items():
+            with self.subTest(request=request):
+                normalized = demo.normalize_travel_request(request)
+                self.assertEqual(normalized["destination"], expected_destination)
+
+    def test_travel_request_normalizer_defaults_destination_when_missing(self):
+        demo = load_module("multi_agent_demo_default_destination_under_test", "user_agents/multi_agent_demo.py")
+
+        normalized = demo.normalize_travel_request("book me a balanced trip from SFO for 2 people")
+
+        self.assertEqual(normalized["destination"], "Tokyo")
+
+    def test_travel_request_normalizer_extracts_place_name_origins(self):
+        demo = load_module("multi_agent_demo_origins_under_test", "user_agents/multi_agent_demo.py")
+
+        examples = [
+            "book me a trip from massachusetts to canada",
+            "book me a trip from Massachusetts to Canada",
+        ]
+
+        for request in examples:
+            with self.subTest(request=request):
+                normalized = demo.normalize_travel_request(request)
+                self.assertEqual(normalized["origin"], "Massachusetts")
+                self.assertEqual(normalized["destination"], "Canada")
+
+    def test_travel_request_normalizer_defaults_origin_when_missing(self):
+        demo = load_module("multi_agent_demo_default_origin_under_test", "user_agents/multi_agent_demo.py")
+
+        normalized = demo.normalize_travel_request("book me a trip to Canada")
+
+        self.assertEqual(normalized["origin"], "SFO")
+
     def test_guardrail_blocks_final_until_all_specialists_complete(self):
         demo = load_module("multi_agent_demo_guardrail_under_test", "user_agents/multi_agent_demo.py")
 
