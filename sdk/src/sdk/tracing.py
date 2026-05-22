@@ -260,6 +260,7 @@ class CheckpointTracingProcessor(TracingProcessor):
                 tool_args = _parse_json_or_str(data.input)
                 record = {
                     "event_type":  "tool_call",
+                    "agent_name":  self._get_agent_name(span.span_id),
                     "tool_name":   data.name,
                     "tool_args":   tool_args,
                     "tool_result": None if data.output is None else str(data.output)[:500],

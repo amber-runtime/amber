@@ -188,7 +188,7 @@ def build_step_records(
             "llm_model":             llm.get("model"),
             "tokens_in":             llm.get("tokens_in"),
             "tokens_out":            llm.get("tokens_out"),
-            "agent_name":            llm.get("agent_name"),
+            "agent_name":            event.get("agent_name"),
             "llm_input":             llm.get("llm_input"),
             "llm_output":            llm.get("llm_output"),
             # Tool fields — populated for tool step rows
