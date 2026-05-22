@@ -55,6 +55,19 @@ async def get_steps(workflow_uuid: str) -> list[dict]:
     return await DBOS.list_workflow_steps_async(workflow_uuid)
 
 
+def _to_dashboard_value(value):
+    """Convert DBOS-native Python values into JSON-safe dashboard payloads."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(k): _to_dashboard_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_to_dashboard_value(item) for item in value]
+    if isinstance(value, set):
+        return [_to_dashboard_value(item) for item in sorted(value, key=repr)]
+    return str(value)
+
+
 # ── Agent events ──────────────────────────────────────────────────────────────
 
 def fetch_agent_events(workflow_id: str, db_url: str) -> list[dict]:
@@ -109,6 +122,8 @@ def build_step_records(
     When agent_events are provided, enrich each step with LLM and tool data:
       - llm_response events are joined to steps by step_id
       - tool_call events are joined to steps by step_id
+    DBOS-native step metadata is always preserved when present:
+      - output, error, and child workflow linkage from DBOS operation_outputs
     Falls back to DBOS-only shape when agent_events is None or empty.
     """
     # Build lookup: step_id → first matching event of each relevant type.
@@ -168,6 +183,9 @@ def build_step_records(
             "event_type":            event_type,
             "status":                "SUCCESS" if step.get("error") is None else "ERROR",
             "duration_ms":           duration_ms,
+            "step_output":           _to_dashboard_value(step.get("output")),
+            "step_error":            None if step.get("error") is None else str(step.get("error")),
+            "child_workflow_id":     step.get("child_workflow_id"),
             # LLM fields — populated for _model_call_step rows
             "llm_model":             llm.get("model"),
             "tokens_in":             llm.get("tokens_in"),
