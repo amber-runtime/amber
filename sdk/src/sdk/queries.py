@@ -198,6 +198,8 @@ def build_step_records(
             "event_type":            event_type,
             "status":                "SUCCESS" if step.get("error") is None else "ERROR",
             "duration_ms":           duration_ms,
+            "started_at_epoch_ms":   started_at_epoch_ms,
+            "completed_at_epoch_ms": completed_at_epoch_ms,
             "step_output":           _to_dashboard_value(step.get("output")),
             # LLM fields — populated for _model_call_step rows
             "llm_model":             llm.get("model"),

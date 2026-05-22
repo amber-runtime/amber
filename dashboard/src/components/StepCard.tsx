@@ -6,56 +6,38 @@ import {
   Wrench,
   ChevronDown,
   ChevronRight,
-  Copy,
-  Check,
   CheckCircle2,
   XCircle,
   Loader2,
 } from 'lucide-react'
-import type { StepWithTiming } from '../lib/types'
+import type { Step } from '../lib/types'
 import { getStepKind, humanizeStepName, formatDuration, stepDurationMs } from '../lib/stepHelpers'
 
 interface Props {
-  step: StepWithTiming
+  step: Step
   index: number
   isActive: boolean
 }
 
-function CopyInline({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false)
-  return (
-    <button
-      onClick={(e) => {
-        e.stopPropagation()
-        navigator.clipboard.writeText(text).catch(() => undefined)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 1500)
-      }}
-      className="ml-1 inline-flex items-center p-0.5 rounded hover:bg-slate-700 text-slate-500 hover:text-slate-300 transition-colors"
-    >
-      {copied ? <Check size={11} /> : <Copy size={11} />}
-    </button>
-  )
-}
-
-function StepIcon({ functionName }: { functionName: string | null }) {
-  const kind = getStepKind(functionName)
+function StepIcon({ step }: { step: Step }) {
+  const kind = getStepKind(step)
   const cls = 'shrink-0'
   if (kind === 'llm') return <Brain size={15} className={`${cls} text-slate-400`} />
   if (kind === 'sleep') return <Clock size={15} className={`${cls} text-slate-600`} />
-  if (functionName === 'search_web') return <Search size={15} className={`${cls} text-emerald-400`} />
+  if (step.tool_name === 'search_web' || step.function_name === 'search_web')
+    return <Search size={15} className={`${cls} text-emerald-400`} />
   return <Wrench size={15} className={`${cls} text-sky-400`} />
 }
 
-function StatusDot({ step }: { step: StepWithTiming }) {
-  if (step.error)
+function StatusDot({ step }: { step: Step }) {
+  if (step.status === 'ERROR')
     return <XCircle size={14} className="text-red-400 shrink-0" />
   if (step.completed_at_epoch_ms == null)
     return <Loader2 size={14} className="text-amber-400 shrink-0 animate-spin" />
   return <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
 }
 
-function LLMStepBody({ step }: { step: StepWithTiming }) {
+function LLMStepBody({ step }: { step: Step }) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400 font-mono bg-slate-800 rounded px-3 py-2">
@@ -65,12 +47,6 @@ function LLMStepBody({ step }: { step: StepWithTiming }) {
         {step.tokens_in != null && step.tokens_out != null && (
           <span className="text-slate-200 font-semibold">
             {(step.tokens_in + step.tokens_out).toLocaleString()} total
-          </span>
-        )}
-        {step.provider_response_id && (
-          <span className="text-slate-500 ml-auto flex items-center">
-            {step.provider_response_id.slice(0, 28)}…
-            <CopyInline text={step.provider_response_id} />
           </span>
         )}
       </div>
@@ -108,24 +84,33 @@ function LLMStepBody({ step }: { step: StepWithTiming }) {
   )
 }
 
-function ToolStepBody({ step }: { step: StepWithTiming }) {
-  if (step.tool_args != null) {
-    return (
-      <pre className="text-xs font-mono bg-slate-800 rounded p-3 overflow-x-auto text-slate-300 leading-relaxed">
-        {JSON.stringify(step.tool_args, null, 2)}
-      </pre>
-    )
+function ToolStepBody({ step }: { step: Step }) {
+  if (step.tool_args == null && step.tool_result == null) {
+    return <p className="text-sm text-slate-500 italic">Tool output not available.</p>
   }
   return (
-    <p className="text-sm text-slate-500 italic">
-      {step.tool_match_status === 'ambiguous'
-        ? 'Tool was called successfully, but multiple invocations occurred in close succession and the result couldn’t be linked to this specific step.'
-        : 'Tool output not available.'}
-    </p>
+    <div className="space-y-3">
+      {step.tool_args != null && (
+        <div>
+          <p className="text-slate-400 text-xs uppercase tracking-wide font-medium mb-1">Input</p>
+          <pre className="text-xs font-mono bg-slate-800 rounded p-3 overflow-x-auto text-slate-300 leading-relaxed">
+            {JSON.stringify(step.tool_args, null, 2)}
+          </pre>
+        </div>
+      )}
+      {step.tool_result != null && (
+        <div>
+          <p className="text-slate-400 text-xs uppercase tracking-wide font-medium mb-1">Output</p>
+          <pre className="text-xs font-mono bg-slate-800 rounded p-3 overflow-x-auto text-slate-300 leading-relaxed max-h-48 overflow-y-auto">
+            {step.tool_result}
+          </pre>
+        </div>
+      )}
+    </div>
   )
 }
 
-function SleepBody({ step }: { step: StepWithTiming }) {
+function SleepBody({ step }: { step: Step }) {
   const dur = stepDurationMs(step)
   return (
     <p className="text-sm text-slate-500 italic">
@@ -134,8 +119,8 @@ function SleepBody({ step }: { step: StepWithTiming }) {
   )
 }
 
-function ExpandedBody({ step }: { step: StepWithTiming }) {
-  const kind = getStepKind(step.function_name)
+function ExpandedBody({ step }: { step: Step }) {
+  const kind = getStepKind(step)
   if (kind === 'llm') return <LLMStepBody step={step} />
   if (kind === 'sleep') return <SleepBody step={step} />
   return <ToolStepBody step={step} />
@@ -155,10 +140,12 @@ export function StepCard({ step, index, isActive }: Props) {
   }, [isActive])
 
   const dur = stepDurationMs(step)
-  const kind = getStepKind(step.function_name)
+  const kind = getStepKind(step)
   const isSleep = kind === 'sleep'
-  const humanName = humanizeStepName(step.function_name)
-  const hasError = !!step.error
+  const humanName = step.event_type === 'tool_call'
+    ? humanizeStepName(step.tool_name ?? step.function_name)
+    : humanizeStepName(step.function_name)
+  const hasError = step.status === 'ERROR'
   const inProgress = step.completed_at_epoch_ms == null
 
   return (
@@ -177,12 +164,11 @@ export function StepCard({ step, index, isActive }: Props) {
         className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-800 transition-colors"
         onClick={() => setExpanded((v) => !v)}
       >
-        {/* Step number */}
         <span className="w-6 h-6 rounded-full bg-slate-800 text-slate-400 text-xs font-semibold flex items-center justify-center shrink-0">
           {index + 1}
         </span>
 
-        <StepIcon functionName={step.function_name} />
+        <StepIcon step={step} />
 
         <span
           className={`flex-1 text-sm font-medium ${
@@ -206,15 +192,6 @@ export function StepCard({ step, index, isActive }: Props) {
         </span>
       </button>
 
-      {/* Error preview — visible when collapsed */}
-      {hasError && !expanded && (
-        <div className="px-4 pb-3 border-l-2 border-red-500/50 ml-4">
-          <p className="text-xs text-red-400 font-mono leading-relaxed line-clamp-2">
-            {step.error}
-          </p>
-        </div>
-      )}
-
       {/* Expanded body */}
       {expanded && (
         <div
@@ -222,15 +199,7 @@ export function StepCard({ step, index, isActive }: Props) {
             hasError ? 'border-l-2 border-l-red-500/50 ml-4' : ''
           }`}
         >
-          {hasError && (
-            <div className="mb-3">
-              <p className="text-xs font-semibold text-red-400 mb-1">Error</p>
-              <pre className="text-xs font-mono text-red-300 bg-red-500/10 rounded p-2.5 overflow-x-auto whitespace-pre-wrap leading-relaxed">
-                {step.error}
-              </pre>
-            </div>
-          )}
-          {!hasError && <ExpandedBody step={step} />}
+          <ExpandedBody step={step} />
         </div>
       )}
     </div>

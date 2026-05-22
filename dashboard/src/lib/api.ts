@@ -1,5 +1,4 @@
 import type { WorkflowSummary, WorkflowDetail, Agent } from './types'
-import { deriveStepTimings } from './stepHelpers'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL as string
 const CUSTOMER_APP = import.meta.env.VITE_CUSTOMER_APP_URL as string
@@ -19,15 +18,12 @@ export async function fetchWorkflows(): Promise<WorkflowSummary[]> {
 
 export async function fetchWorkflowDetail(id: string): Promise<WorkflowDetail> {
   const res = await fetch(`${API_BASE}/workflows/${encodeURIComponent(id)}`)
-  // Raw shape from backend — steps have no timestamps yet
   const raw = await handleResponse<{
     workflow: WorkflowDetail['workflow']
     steps: WorkflowDetail['steps']
     events: unknown[]
   }>(res)
-  // Derive synthetic per-step timestamps client-side from cumulative duration_ms
-  const steps = deriveStepTimings(raw.workflow.created_at, raw.steps)
-  return { workflow: raw.workflow, steps }
+  return { workflow: raw.workflow, steps: raw.steps }
 }
 
 export async function fetchAgents(): Promise<Agent[]> {

@@ -4,32 +4,24 @@ export interface Agent {
   name: string
 }
 
-// Step record as returned by GET /workflows/{id} — no per-step timestamps in the backend.
 export interface Step {
   step_id: number | null
   function_name: string | null
+  event_type: string
   status: 'SUCCESS' | 'ERROR'
   duration_ms: number | null
-  error: string | null
+  started_at_epoch_ms: number | null
+  completed_at_epoch_ms: number | null
+  step_output: unknown | null
+  agent_name: string | null
   llm_model: string | null
   tokens_in: number | null
   tokens_out: number | null
-  provider_response_id: string | null
   llm_input: unknown[] | null
   llm_output: unknown[] | null
   tool_name: string | null
   tool_args: unknown
-  tool_match_status: string | null
-}
-
-// Step enriched client-side with synthetic timestamps derived from cumulative duration_ms.
-// These are NOT from the backend — they assume steps execute consecutively with no gap.
-// Bars on the Gantt will be slightly compressed relative to wall-clock time because
-// inter-step orchestration time (workflow function execution between steps) is not captured.
-// DBOS.sleep steps are correctly represented since their sleep duration IS in duration_ms.
-export interface StepWithTiming extends Step {
-  started_at_epoch_ms: number
-  completed_at_epoch_ms: number | null
+  tool_result: string | null
 }
 
 export interface WorkflowInfo {
@@ -44,7 +36,7 @@ export interface WorkflowInfo {
 
 export interface WorkflowDetail {
   workflow: WorkflowInfo
-  steps: StepWithTiming[]
+  steps: Step[]
 }
 
 export interface WorkflowSummary {
@@ -56,14 +48,10 @@ export interface WorkflowSummary {
   recovery_attempts: number | null
 }
 
-export type TurnKind = 'preflight' | 'agent' | 'final'
-
-export interface Turn {
-  turnNumber: number
-  kind: TurnKind
-  llmStep: StepWithTiming | null
-  toolSteps: StepWithTiming[]
-  startedAtMs: number
+export interface AgentGroup {
+  agentName: string | null   // null = preflight infrastructure steps
+  steps: Step[]
+  startedAtMs: number | null
   endedAtMs: number | null
   totalDurationMs: number | null
 }

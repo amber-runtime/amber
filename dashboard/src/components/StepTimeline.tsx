@@ -1,24 +1,24 @@
 import { useState } from 'react'
-import type { StepWithTiming, WorkflowInfo } from '../lib/types'
-import { groupStepsIntoTurns } from '../lib/stepHelpers'
+import type { Step, WorkflowInfo } from '../lib/types'
+import { groupStepsByAgent } from '../lib/stepHelpers'
 import { GanttStrip } from './GanttStrip'
 import { TurnGroup } from './TurnGroup'
 
 interface Props {
   workflow: WorkflowInfo
-  steps: StepWithTiming[]
+  steps: Step[]
 }
 
 export function StepTimeline({ workflow, steps }: Props) {
   const [activeStepId, setActiveStepId] = useState<number | null>(null)
 
-  const turns = groupStepsIntoTurns(steps)
+  const groups = groupStepsByAgent(steps)
 
   const workflowStart = workflow.created_at
   const lastStepEnd = steps.length > 0
     ? (steps[steps.length - 1].completed_at_epoch_ms ?? steps[steps.length - 1].started_at_epoch_ms)
     : workflowStart
-  const workflowEnd = Math.max(lastStepEnd, workflowStart + 5000)
+  const workflowEnd = Math.max(lastStepEnd ?? workflowStart, workflowStart + 5000)
 
   if (steps.length === 0) {
     return (
@@ -32,7 +32,7 @@ export function StepTimeline({ workflow, steps }: Props) {
     <div className="space-y-3">
       <GanttStrip
         steps={steps}
-        turns={turns}
+        groups={groups}
         workflowStart={workflowStart}
         workflowEnd={workflowEnd}
         activeStepId={activeStepId}
@@ -40,10 +40,10 @@ export function StepTimeline({ workflow, steps }: Props) {
       />
 
       <div className="space-y-2">
-        {turns.map((turn) => (
+        {groups.map((group, i) => (
           <TurnGroup
-            key={turn.kind === 'preflight' ? 'preflight' : turn.turnNumber}
-            turn={turn}
+            key={`${group.agentName ?? 'preflight'}-${i}`}
+            group={group}
             activeStepId={activeStepId}
           />
         ))}

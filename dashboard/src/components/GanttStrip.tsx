@@ -1,9 +1,9 @@
-import type { StepWithTiming, Turn } from '../lib/types'
+import type { Step, AgentGroup } from '../lib/types'
 import { getStepKind, humanizeStepName, formatDuration, stepDurationMs } from '../lib/stepHelpers'
 
 interface Props {
-  steps: StepWithTiming[]
-  turns: Turn[]
+  steps: Step[]
+  groups: AgentGroup[]
   workflowStart: number
   workflowEnd: number
   activeStepId: number | null
@@ -24,19 +24,13 @@ const KIND_ACTIVE: Record<ReturnType<typeof getStepKind>, string> = {
   other: 'bg-sky-400',
 }
 
-const TURN_BAND: Record<Turn['kind'], (even: boolean) => string> = {
-  preflight: () => 'bg-slate-800/30',
-  agent: (even) => (even ? 'bg-transparent' : 'bg-slate-800/20'),
-  final: () => 'bg-emerald-900/20',
-}
-
 const TICK_COUNT = 5
 const ROW_HEIGHT = 30
 const ROW_GAP = 2
 
 export function GanttStrip({
   steps,
-  turns,
+  groups,
   workflowStart,
   workflowEnd,
   activeStepId,
@@ -49,8 +43,6 @@ export function GanttStrip({
   )
 
   const chartHeight = Math.max(steps.length, 1) * (ROW_HEIGHT + ROW_GAP) - ROW_GAP
-
-  let agentIndex = 0
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
@@ -77,44 +69,34 @@ export function GanttStrip({
           })}
         </div>
 
-        {/* Chart area — one row per step, staircase layout */}
+        {/* Chart area */}
         <div className="relative" style={{ height: `${chartHeight}px` }}>
-          {/* Turn background bands */}
-          {turns.map((turn) => {
-            const bandStart = turn.startedAtMs
-            const bandEnd = turn.endedAtMs ?? workflowEnd
-            const leftPct = Math.max(
-              0,
-              ((bandStart - workflowStart) / totalDuration) * 100,
-            )
-            const widthPct = Math.min(
-              100 - leftPct,
-              ((bandEnd - bandStart) / totalDuration) * 100,
-            )
+          {/* Agent group background bands */}
+          {groups.map((group, i) => {
+            const bandStart = group.startedAtMs ?? workflowStart
+            const bandEnd = group.endedAtMs ?? workflowEnd
+            const leftPct = Math.max(0, ((bandStart - workflowStart) / totalDuration) * 100)
+            const widthPct = Math.min(100 - leftPct, ((bandEnd - bandStart) / totalDuration) * 100)
 
-            let bandClass: string
-            if (turn.kind === 'preflight') {
-              bandClass = TURN_BAND.preflight(false)
-            } else {
-              bandClass = TURN_BAND[turn.kind](agentIndex % 2 === 0)
-              agentIndex++
-            }
+            const bandClass = group.agentName === null
+              ? 'bg-slate-800/30'
+              : i % 2 === 0 ? 'bg-transparent' : 'bg-slate-800/20'
 
             return (
               <div
-                key={turn.kind === 'preflight' ? 'preflight' : turn.turnNumber}
+                key={`${group.agentName ?? 'preflight'}-${i}`}
                 className={`absolute top-0 bottom-0 ${bandClass}`}
                 style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
               />
             )
           })}
 
-          {/* Turn boundary lines */}
-          {turns.slice(1).map((turn) => {
-            const pct = ((turn.startedAtMs - workflowStart) / totalDuration) * 100
+          {/* Group boundary lines */}
+          {groups.slice(1).map((group, i) => {
+            const pct = (((group.startedAtMs ?? workflowStart) - workflowStart) / totalDuration) * 100
             return (
               <div
-                key={`boundary-${turn.kind === 'preflight' ? 0 : turn.turnNumber}`}
+                key={`boundary-${i}`}
                 className="absolute top-0 bottom-0 w-px bg-slate-700 z-[1]"
                 style={{ left: `${pct}%` }}
               />
@@ -135,9 +117,9 @@ export function GanttStrip({
 
           {/* Step bars */}
           {steps.map((step, index) => {
-            const kind = getStepKind(step.function_name)
+            const kind = getStepKind(step)
             const isActive = step.step_id === activeStepId
-            const hasError = !!step.error
+            const hasError = step.status === 'ERROR'
 
             const topPx = index * (ROW_HEIGHT + ROW_GAP)
             const stepStart = step.started_at_epoch_ms ?? workflowStart
@@ -156,7 +138,9 @@ export function GanttStrip({
               ? KIND_ACTIVE[kind]
               : KIND_COLOR[kind]
 
-            const label = humanizeStepName(step.function_name)
+            const label = step.event_type === 'tool_call'
+              ? humanizeStepName(step.tool_name ?? step.function_name)
+              : humanizeStepName(step.function_name)
             const dur = stepDurationMs(step)
             const tooltip = `${label}${dur != null ? ` · ${formatDuration(dur)}` : ' · in progress'}`
 

@@ -1,4 +1,4 @@
-import type { Step, StepWithTiming, Turn } from './types'
+import type { Step, AgentGroup } from './types'
 
 export type StepKind = 'llm' | 'tool' | 'sleep' | 'other'
 
@@ -31,11 +31,11 @@ export function humanizeWorkflowName(name: string): string {
     .join(' ')
 }
 
-export function getStepKind(functionName: string | null): StepKind {
-  if (!functionName) return 'other'
-  if (functionName === '_model_call_step') return 'llm'
-  if (functionName === 'DBOS.sleep') return 'sleep'
-  return 'tool'
+export function getStepKind(step: Step): StepKind {
+  if (step.event_type === 'llm_response') return 'llm'
+  if (step.event_type === 'tool_call') return 'tool'
+  if (step.function_name === 'DBOS.sleep') return 'sleep'
+  return 'other'
 }
 
 export function sumTokens(steps: Step[]): number {
@@ -99,89 +99,46 @@ export function stepDurationMs(step: Step): number | null {
   return step.duration_ms
 }
 
-// Derives synthetic per-step timestamps from cumulative duration_ms, anchored at
-// the workflow's created_at. Assumes steps execute consecutively with no gap between
-// them — inter-step orchestration time is not captured by the backend and will be
-// absent from the Gantt. DBOS.sleep steps work correctly since sleep duration IS
-// recorded in duration_ms. PENDING (in-flight) steps get started_at but no completed_at.
-export function deriveStepTimings(
-  workflowCreatedAt: number,
-  steps: Step[],
-): StepWithTiming[] {
-  let cumulativeMs = 0
-  return steps.map((step) => {
-    const startedAtEpochMs = workflowCreatedAt + cumulativeMs
-    const durMs = step.duration_ms
-    const completedAtEpochMs = durMs != null ? startedAtEpochMs + durMs : null
-    cumulativeMs += durMs ?? 0
-    return { ...step, started_at_epoch_ms: startedAtEpochMs, completed_at_epoch_ms: completedAtEpochMs }
-  })
-}
 
-export function groupStepsIntoTurns(steps: StepWithTiming[]): Turn[] {
-  const turns: Turn[] = []
-  let i = 0
-  let agentTurnCount = 0
+export function groupStepsByAgent(steps: Step[]): AgentGroup[] {
+  if (steps.length === 0) return []
 
-  // Collect preflight steps (before the first _model_call_step)
-  const preflightSteps: StepWithTiming[] = []
-  while (i < steps.length && steps[i].function_name !== '_model_call_step') {
-    preflightSteps.push(steps[i])
-    i++
-  }
-  if (preflightSteps.length > 0) {
-    const start = preflightSteps[0].started_at_epoch_ms
-    const lastEnd = preflightSteps[preflightSteps.length - 1].completed_at_epoch_ms
-    turns.push({
-      turnNumber: 0,
-      kind: 'preflight',
-      llmStep: null,
-      toolSteps: preflightSteps,
-      startedAtMs: start,
-      endedAtMs: lastEnd,
-      totalDurationMs: lastEnd != null ? lastEnd - start : null,
-    })
-  }
+  const groups: AgentGroup[] = []
+  let currentAgentName: string | null = null
+  let currentSteps: Step[] = []
+  let seenAnyAgent = false
 
-  while (i < steps.length) {
-    if (steps[i].function_name !== '_model_call_step') {
-      i++
-      continue
-    }
-
-    const llmStep = steps[i]
-    i++
-
-    const toolSteps: StepWithTiming[] = []
-    while (i < steps.length && steps[i].function_name !== '_model_call_step') {
-      toolSteps.push(steps[i])
-      i++
-    }
-
-    agentTurnCount++
-    const lastToolEnd =
-      toolSteps.length > 0 ? toolSteps[toolSteps.length - 1].completed_at_epoch_ms : null
-    const endedAtMs = lastToolEnd ?? llmStep.completed_at_epoch_ms
-    const startedAtMs = llmStep.started_at_epoch_ms
-
-    turns.push({
-      turnNumber: agentTurnCount,
-      kind: 'agent',
-      llmStep,
-      toolSteps,
+  const flush = () => {
+    if (currentSteps.length === 0) return
+    const startedAtMs = currentSteps[0].started_at_epoch_ms ?? null
+    const endedAtMs = currentSteps[currentSteps.length - 1].completed_at_epoch_ms ?? null
+    groups.push({
+      agentName: currentAgentName,
+      steps: currentSteps,
       startedAtMs,
       endedAtMs,
-      totalDurationMs: endedAtMs != null ? endedAtMs - startedAtMs : null,
+      totalDurationMs: startedAtMs != null && endedAtMs != null ? endedAtMs - startedAtMs : null,
     })
+    currentSteps = []
   }
 
-  // The last agent turn with no tool steps is the final-answer turn
-  if (turns.length > 0) {
-    const last = turns[turns.length - 1]
-    if (last.kind === 'agent' && last.toolSteps.length === 0) {
-      last.kind = 'final'
+  for (const step of steps) {
+    const agentName = step.agent_name ?? null
+
+    if (agentName !== null) {
+      if (!seenAnyAgent || agentName !== currentAgentName) {
+        flush()
+        currentAgentName = agentName
+        seenAnyAgent = true
+      }
+      currentSteps.push(step)
+    } else {
+      // Infrastructure step (event_type='step', no agent_name).
+      // Before any agent runs → preflight. After → attach to the current agent group.
+      currentSteps.push(step)
     }
   }
 
-  return turns
+  flush()
+  return groups
 }
