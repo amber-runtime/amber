@@ -1,8 +1,9 @@
-import type { Step, LLMOutput, LLMMessageItem, Turn } from './types'
+import type { Step, StepWithTiming, Turn } from './types'
 
 export type StepKind = 'llm' | 'tool' | 'sleep' | 'other'
 
-export function humanizeStepName(functionName: string): string {
+export function humanizeStepName(functionName: string | null): string {
+  if (!functionName) return 'Unknown'
   const map: Record<string, string> = {
     _model_call_step: 'Agent Turn',
     search_web: 'Web Search',
@@ -11,66 +12,36 @@ export function humanizeStepName(functionName: string): string {
   if (map[functionName]) return map[functionName]
   return functionName
     .replace(/_/g, ' ')
+    .replace(/-/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 export function humanizeWorkflowName(name: string): string {
-  const map: Record<string, string> = {
+  if (!name) return 'Workflow'
+  // Handle legacy underscore names from old single_server_poc runs
+  const underscoreMap: Record<string, string> = {
     run_agent: 'Research Agent',
     run_email_campaign: 'Email Campaign',
   }
-  return map[name] ?? humanizeStepName(name)
+  if (underscoreMap[name]) return underscoreMap[name]
+  // Handle slug format: "research-assistant" → "Research Assistant"
+  return name
+    .split('-')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
 }
 
-export function getStepKind(functionName: string): StepKind {
+export function getStepKind(functionName: string | null): StepKind {
+  if (!functionName) return 'other'
   if (functionName === '_model_call_step') return 'llm'
   if (functionName === 'DBOS.sleep') return 'sleep'
-  // A step wrapped with @step() that isn't a DBOS internal is a user tool
   return 'tool'
 }
 
-export function isLLMOutput(output: unknown): output is LLMOutput {
-  return (
-    typeof output === 'object' &&
-    output !== null &&
-    'output' in output &&
-    Array.isArray((output as LLMOutput).output)
-  )
-}
-
-export function extractFinalAnswer(steps: Step[]): string | null {
-  const llmSteps = [...steps]
-    .filter((s) => s.function_name === '_model_call_step')
-    .reverse()
-
-  for (const step of llmSteps) {
-    if (!isLLMOutput(step.output)) continue
-    for (const item of step.output.output) {
-      if (item.type === 'message') {
-        const msg = item as LLMMessageItem
-        const text = msg.content?.[0]?.text
-        if (text) return text
-      }
-    }
-  }
-  return null
-}
-
-export function extractWorkflowInputArg(input: string | null | undefined): string {
-  if (!input) return '(no input)'
-  // Python repr: {'args': ('durable execution',), 'kwargs': {}}
-  const match = input.match(/['"]args['"]\s*:\s*\(?['"]([^'"]+)['"]/)
-  if (match) return match[1]
-  // JSON format: {"args": ["some topic"]}
-  try {
-    const parsed = JSON.parse(input.replace(/'/g, '"')) as { args?: unknown[] }
-    if (Array.isArray(parsed.args) && parsed.args.length > 0) {
-      return String(parsed.args[0])
-    }
-  } catch {
-    // fall through
-  }
-  return input
+export function sumTokens(steps: Step[]): number {
+  return steps.reduce((sum, step) => {
+    return sum + (step.tokens_in ?? 0) + (step.tokens_out ?? 0)
+  }, 0)
 }
 
 export function formatDuration(ms: number): string {
@@ -124,20 +95,36 @@ export function parseSearchWebOutput(
     .filter((r) => r.title || r.url)
 }
 
-export function sumTokens(steps: Step[]): number {
-  return steps.reduce((sum, step) => {
-    if (!isLLMOutput(step.output)) return sum
-    return sum + (step.output.usage?.total_tokens ?? 0)
-  }, 0)
+export function stepDurationMs(step: Step): number | null {
+  return step.duration_ms
 }
 
-export function groupStepsIntoTurns(steps: Step[]): Turn[] {
+// Derives synthetic per-step timestamps from cumulative duration_ms, anchored at
+// the workflow's created_at. Assumes steps execute consecutively with no gap between
+// them — inter-step orchestration time is not captured by the backend and will be
+// absent from the Gantt. DBOS.sleep steps work correctly since sleep duration IS
+// recorded in duration_ms. PENDING (in-flight) steps get started_at but no completed_at.
+export function deriveStepTimings(
+  workflowCreatedAt: number,
+  steps: Step[],
+): StepWithTiming[] {
+  let cumulativeMs = 0
+  return steps.map((step) => {
+    const startedAtEpochMs = workflowCreatedAt + cumulativeMs
+    const durMs = step.duration_ms
+    const completedAtEpochMs = durMs != null ? startedAtEpochMs + durMs : null
+    cumulativeMs += durMs ?? 0
+    return { ...step, started_at_epoch_ms: startedAtEpochMs, completed_at_epoch_ms: completedAtEpochMs }
+  })
+}
+
+export function groupStepsIntoTurns(steps: StepWithTiming[]): Turn[] {
   const turns: Turn[] = []
   let i = 0
   let agentTurnCount = 0
 
   // Collect preflight steps (before the first _model_call_step)
-  const preflightSteps: Step[] = []
+  const preflightSteps: StepWithTiming[] = []
   while (i < steps.length && steps[i].function_name !== '_model_call_step') {
     preflightSteps.push(steps[i])
     i++
@@ -158,7 +145,6 @@ export function groupStepsIntoTurns(steps: Step[]): Turn[] {
 
   while (i < steps.length) {
     if (steps[i].function_name !== '_model_call_step') {
-      // Orphan tool step between turns — absorb and skip
       i++
       continue
     }
@@ -166,16 +152,15 @@ export function groupStepsIntoTurns(steps: Step[]): Turn[] {
     const llmStep = steps[i]
     i++
 
-    const toolSteps: Step[] = []
+    const toolSteps: StepWithTiming[] = []
     while (i < steps.length && steps[i].function_name !== '_model_call_step') {
       toolSteps.push(steps[i])
       i++
     }
 
     agentTurnCount++
-    const lastToolEnd = toolSteps.length > 0
-      ? toolSteps[toolSteps.length - 1].completed_at_epoch_ms
-      : null
+    const lastToolEnd =
+      toolSteps.length > 0 ? toolSteps[toolSteps.length - 1].completed_at_epoch_ms : null
     const endedAtMs = lastToolEnd ?? llmStep.completed_at_epoch_ms
     const startedAtMs = llmStep.started_at_epoch_ms
 
@@ -199,9 +184,4 @@ export function groupStepsIntoTurns(steps: Step[]): Turn[] {
   }
 
   return turns
-}
-
-export function stepDurationMs(step: Step): number | null {
-  if (step.completed_at_epoch_ms == null) return null
-  return step.completed_at_epoch_ms - step.started_at_epoch_ms
 }

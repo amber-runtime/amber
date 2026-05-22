@@ -12,20 +12,11 @@ import {
   XCircle,
   Loader2,
 } from 'lucide-react'
-import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import type { Step, LLMFunctionCallItem, LLMMessageItem } from '../lib/types'
-import {
-  getStepKind,
-  humanizeStepName,
-  formatDuration,
-  parseSearchWebOutput,
-  isLLMOutput,
-  stepDurationMs,
-} from '../lib/stepHelpers'
+import type { StepWithTiming } from '../lib/types'
+import { getStepKind, humanizeStepName, formatDuration, stepDurationMs } from '../lib/stepHelpers'
 
 interface Props {
-  step: Step
+  step: StepWithTiming
   index: number
   isActive: boolean
 }
@@ -40,156 +31,114 @@ function CopyInline({ text }: { text: string }) {
         setCopied(true)
         setTimeout(() => setCopied(false), 1500)
       }}
-      className="ml-1 inline-flex items-center p-0.5 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
+      className="ml-1 inline-flex items-center p-0.5 rounded hover:bg-slate-700 text-slate-500 hover:text-slate-300 transition-colors"
     >
       {copied ? <Check size={11} /> : <Copy size={11} />}
     </button>
   )
 }
 
-function StepIcon({ functionName }: { functionName: string }) {
+function StepIcon({ functionName }: { functionName: string | null }) {
   const kind = getStepKind(functionName)
   const cls = 'shrink-0'
-  if (kind === 'llm') return <Brain size={15} className={`${cls} text-slate-500`} />
-  if (kind === 'sleep') return <Clock size={15} className={`${cls} text-gray-400`} />
-  if (functionName === 'search_web') return <Search size={15} className={`${cls} text-emerald-500`} />
-  return <Wrench size={15} className={`${cls} text-sky-500`} />
+  if (kind === 'llm') return <Brain size={15} className={`${cls} text-slate-400`} />
+  if (kind === 'sleep') return <Clock size={15} className={`${cls} text-slate-600`} />
+  if (functionName === 'search_web') return <Search size={15} className={`${cls} text-emerald-400`} />
+  return <Wrench size={15} className={`${cls} text-sky-400`} />
 }
 
-function StatusDot({ step }: { step: Step }) {
+function StatusDot({ step }: { step: StepWithTiming }) {
   if (step.error)
-    return <XCircle size={14} className="text-red-500 shrink-0" />
+    return <XCircle size={14} className="text-red-400 shrink-0" />
   if (step.completed_at_epoch_ms == null)
-    return <Loader2 size={14} className="text-amber-500 shrink-0 animate-spin" />
-  return <CheckCircle2 size={14} className="text-green-500 shrink-0" />
+    return <Loader2 size={14} className="text-amber-400 shrink-0 animate-spin" />
+  return <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
 }
 
-function LLMStepBody({ step }: { step: Step }) {
-  if (!isLLMOutput(step.output)) return null
-  const { output: items, usage, response_id, model } = step.output
-
+function LLMStepBody({ step }: { step: StepWithTiming }) {
   return (
     <div className="space-y-3">
-      {/* Metadata row */}
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500 font-mono bg-gray-50 rounded px-3 py-2">
-        {model && <span className="text-gray-700">{model}</span>}
-        <span>{usage.input_tokens.toLocaleString()} in</span>
-        <span>{usage.output_tokens.toLocaleString()} out</span>
-        <span className="text-gray-700 font-semibold">{usage.total_tokens.toLocaleString()} total</span>
-        <span className="text-gray-400 ml-auto flex items-center">
-          {response_id.slice(0, 28)}…
-          <CopyInline text={response_id} />
-        </span>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400 font-mono bg-slate-800 rounded px-3 py-2">
+        {step.llm_model && <span className="text-slate-300">{step.llm_model}</span>}
+        {step.tokens_in != null && <span>{step.tokens_in.toLocaleString()} in</span>}
+        {step.tokens_out != null && <span>{step.tokens_out.toLocaleString()} out</span>}
+        {step.tokens_in != null && step.tokens_out != null && (
+          <span className="text-slate-200 font-semibold">
+            {(step.tokens_in + step.tokens_out).toLocaleString()} total
+          </span>
+        )}
+        {step.provider_response_id && (
+          <span className="text-slate-500 ml-auto flex items-center">
+            {step.provider_response_id.slice(0, 28)}…
+            <CopyInline text={step.provider_response_id} />
+          </span>
+        )}
       </div>
-
-      {/* Output items */}
-      {items.map((item, i) => {
-        if (item.type === 'function_call') {
-          const fc = item as LLMFunctionCallItem
-          let parsed: unknown = fc.arguments
-          try {
-            parsed = JSON.parse(fc.arguments)
-          } catch {
-            // leave as string
-          }
-          return (
-            <div key={i} className="flex items-start gap-2 text-sm">
-              <span className="text-gray-400 mt-0.5 shrink-0">→</span>
-              <span>
-                <span className="text-gray-500">Requested </span>
-                <code className="font-mono text-slate-700 text-xs bg-slate-100 px-1 py-0.5 rounded">
-                  {fc.name}
-                </code>
-                <pre className="mt-1.5 text-xs bg-gray-50 rounded p-2 overflow-x-auto text-gray-700 font-mono leading-relaxed">
-                  {typeof parsed === 'object'
-                    ? JSON.stringify(parsed, null, 2)
-                    : String(parsed)}
-                </pre>
-              </span>
-            </div>
-          )
-        }
-
-        if (item.type === 'message') {
-          const msg = item as LLMMessageItem
-          const text = msg.content?.[0]?.text
-          if (!text) return null
-          return (
-            <div key={i}>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-                Final Answer Generation
-              </p>
-              <div className="prose text-sm text-gray-800 max-w-none">
-                <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
-              </div>
-            </div>
-          )
-        }
-
-        return null
-      })}
-    </div>
-  )
-}
-
-function SearchWebBody({ output }: { output: string }) {
-  const results = parseSearchWebOutput(output)
-  if (results.length === 0) {
-    return <pre className="text-xs font-mono bg-gray-50 rounded p-3 overflow-x-auto">{output}</pre>
-  }
-  return (
-    <div className="space-y-3">
-      {results.map((r, i) => (
-        <div key={i} className="border border-gray-100 rounded-lg px-4 py-3 space-y-1">
-          <p className="text-sm font-medium text-gray-800">{r.title}</p>
-          <a
-            href={r.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-blue-600 hover:underline block truncate"
-          >
-            {r.url}
-          </a>
-          <p className="text-xs text-gray-600 leading-relaxed">{r.summary}</p>
+      {step.llm_input != null && (
+        <div>
+          <p className="text-slate-400 text-xs uppercase tracking-wide font-medium mb-2">LLM Input</p>
+          <pre className="bg-slate-950 border border-slate-800 rounded p-3 text-xs text-slate-300 overflow-x-auto max-h-64 overflow-y-auto">
+            {JSON.stringify(step.llm_input, null, 2)}
+          </pre>
         </div>
-      ))}
+      )}
+      {step.llm_output != null && (
+        <div>
+          <p className="text-slate-400 text-xs uppercase tracking-wide font-medium mb-2">LLM Output</p>
+          <pre className="bg-slate-950 border border-slate-800 rounded p-3 text-xs text-slate-300 overflow-x-auto max-h-64 overflow-y-auto">
+            {JSON.stringify(step.llm_output, null, 2)}
+          </pre>
+        </div>
+      )}
+      {step.tool_args != null && (
+        <div className="flex items-start gap-2 text-sm">
+          <span className="text-slate-500 mt-0.5 shrink-0">→</span>
+          <span>
+            <span className="text-slate-400">Requested </span>
+            <code className="font-mono text-slate-300 text-xs bg-slate-800 px-1 py-0.5 rounded">
+              {step.tool_name ?? 'tool'}
+            </code>
+            <pre className="mt-1.5 text-xs bg-slate-800 rounded p-2 overflow-x-auto text-slate-300 font-mono leading-relaxed">
+              {JSON.stringify(step.tool_args, null, 2)}
+            </pre>
+          </span>
+        </div>
+      )}
     </div>
   )
 }
 
-function OtherToolBody({ step }: { step: Step }) {
-  const payload = {
-    output: step.output,
-    error: step.error,
+function ToolStepBody({ step }: { step: StepWithTiming }) {
+  if (step.tool_args != null) {
+    return (
+      <pre className="text-xs font-mono bg-slate-800 rounded p-3 overflow-x-auto text-slate-300 leading-relaxed">
+        {JSON.stringify(step.tool_args, null, 2)}
+      </pre>
+    )
   }
   return (
-    <pre className="text-xs font-mono bg-gray-50 rounded p-3 overflow-x-auto text-gray-700 leading-relaxed">
-      {JSON.stringify(payload, null, 2)}
-    </pre>
+    <p className="text-sm text-slate-500 italic">
+      {step.tool_match_status === 'ambiguous'
+        ? 'Tool was called successfully, but multiple invocations occurred in close succession and the result couldn’t be linked to this specific step.'
+        : 'Tool output not available.'}
+    </p>
   )
 }
 
-function SleepBody({ step }: { step: Step }) {
+function SleepBody({ step }: { step: StepWithTiming }) {
   const dur = stepDurationMs(step)
   return (
-    <p className="text-sm text-gray-400 italic">
+    <p className="text-sm text-slate-500 italic">
       Slept for {dur != null ? formatDuration(dur) : '…'}
     </p>
   )
 }
 
-function ExpandedBody({ step }: { step: Step }) {
+function ExpandedBody({ step }: { step: StepWithTiming }) {
   const kind = getStepKind(step.function_name)
-
   if (kind === 'llm') return <LLMStepBody step={step} />
-
   if (kind === 'sleep') return <SleepBody step={step} />
-
-  if (step.function_name === 'search_web' && typeof step.output === 'string') {
-    return <SearchWebBody output={step.output} />
-  }
-
-  return <OtherToolBody step={step} />
+  return <ToolStepBody step={step} />
 }
 
 export function StepCard({ step, index, isActive }: Props) {
@@ -215,17 +164,21 @@ export function StepCard({ step, index, isActive }: Props) {
   return (
     <div
       ref={cardRef}
-      className={`bg-white border rounded-lg overflow-hidden transition-shadow ${
-        hasError ? 'border-red-300' : isActive ? 'border-slate-400 shadow-sm' : 'border-gray-200'
+      className={`bg-slate-900 border rounded-lg overflow-hidden transition-shadow ${
+        hasError
+          ? 'border-red-500/50'
+          : isActive
+          ? 'border-slate-500 shadow-sm shadow-slate-700/50'
+          : 'border-slate-800'
       }`}
     >
       {/* Header — always visible */}
       <button
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-800 transition-colors"
         onClick={() => setExpanded((v) => !v)}
       >
         {/* Step number */}
-        <span className="w-6 h-6 rounded-full bg-gray-100 text-gray-500 text-xs font-semibold flex items-center justify-center shrink-0">
+        <span className="w-6 h-6 rounded-full bg-slate-800 text-slate-400 text-xs font-semibold flex items-center justify-center shrink-0">
           {index + 1}
         </span>
 
@@ -233,8 +186,8 @@ export function StepCard({ step, index, isActive }: Props) {
 
         <span
           className={`flex-1 text-sm font-medium ${
-            isSleep ? 'text-gray-400' : 'text-gray-800'
-          } ${isSleep ? 'text-xs' : ''}`}
+            isSleep ? 'text-slate-500 text-xs' : 'text-slate-200'
+          }`}
         >
           {humanName}
         </span>
@@ -242,21 +195,21 @@ export function StepCard({ step, index, isActive }: Props) {
         <StatusDot step={step} />
 
         {dur != null && (
-          <span className="text-xs text-gray-400 font-mono shrink-0">{formatDuration(dur)}</span>
+          <span className="text-xs text-slate-500 font-mono shrink-0">{formatDuration(dur)}</span>
         )}
         {inProgress && (
-          <span className="text-xs text-amber-500 font-mono shrink-0">running…</span>
+          <span className="text-xs text-amber-400 font-mono shrink-0">running…</span>
         )}
 
-        <span className="text-gray-300 shrink-0">
+        <span className="text-slate-600 shrink-0">
           {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </span>
       </button>
 
       {/* Error preview — visible when collapsed */}
       {hasError && !expanded && (
-        <div className="px-4 pb-3 border-l-2 border-red-400 ml-4">
-          <p className="text-xs text-red-600 font-mono leading-relaxed line-clamp-2">
+        <div className="px-4 pb-3 border-l-2 border-red-500/50 ml-4">
+          <p className="text-xs text-red-400 font-mono leading-relaxed line-clamp-2">
             {step.error}
           </p>
         </div>
@@ -265,14 +218,14 @@ export function StepCard({ step, index, isActive }: Props) {
       {/* Expanded body */}
       {expanded && (
         <div
-          className={`px-4 pb-4 border-t border-gray-100 pt-3 ${
-            hasError ? 'border-l-2 border-l-red-400 ml-4' : ''
+          className={`px-4 pb-4 border-t border-slate-800 pt-3 ${
+            hasError ? 'border-l-2 border-l-red-500/50 ml-4' : ''
           }`}
         >
           {hasError && (
             <div className="mb-3">
-              <p className="text-xs font-semibold text-red-600 mb-1">Error</p>
-              <pre className="text-xs font-mono text-red-700 bg-red-50 rounded p-2.5 overflow-x-auto whitespace-pre-wrap leading-relaxed">
+              <p className="text-xs font-semibold text-red-400 mb-1">Error</p>
+              <pre className="text-xs font-mono text-red-300 bg-red-500/10 rounded p-2.5 overflow-x-auto whitespace-pre-wrap leading-relaxed">
                 {step.error}
               </pre>
             </div>

@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import type { Step, WorkflowInfo } from '../lib/types'
+import type { StepWithTiming, WorkflowInfo } from '../lib/types'
 import { groupStepsIntoTurns } from '../lib/stepHelpers'
 import { GanttStrip } from './GanttStrip'
 import { TurnGroup } from './TurnGroup'
 
 interface Props {
   workflow: WorkflowInfo
-  steps: Step[]
+  steps: StepWithTiming[]
 }
 
 export function StepTimeline({ workflow, steps }: Props) {
@@ -15,15 +15,15 @@ export function StepTimeline({ workflow, steps }: Props) {
   const turns = groupStepsIntoTurns(steps)
 
   const workflowStart = workflow.created_at
-  const workflowEnd =
-    workflow.updated_at > workflow.created_at
-      ? workflow.updated_at
-      : workflow.created_at + 5000
+  const lastStepEnd = steps.length > 0
+    ? (steps[steps.length - 1].completed_at_epoch_ms ?? steps[steps.length - 1].started_at_epoch_ms)
+    : workflowStart
+  const workflowEnd = Math.max(lastStepEnd, workflowStart + 5000)
 
   if (steps.length === 0) {
     return (
-      <div className="bg-white border border-gray-200 rounded-lg px-5 py-8 text-center">
-        <p className="text-sm text-gray-400">No steps recorded yet.</p>
+      <div className="bg-slate-900 border border-slate-800 rounded-lg px-5 py-8 text-center">
+        <p className="text-sm text-slate-500">No steps recorded yet.</p>
       </div>
     )
   }

@@ -1,53 +1,33 @@
 export type WorkflowStatus = 'SUCCESS' | 'PENDING' | 'ERROR' | 'CANCELLED'
 
-export interface LLMFunctionCallItem {
-  type: 'function_call'
-  arguments: string
-  call_id: string
+export interface Agent {
   name: string
-  id: string
-  status: string
 }
 
-export interface LLMContentItem {
-  text: string
-  type: string
-  annotations: unknown[]
-  logprobs: unknown[]
-}
-
-export interface LLMMessageItem {
-  type: 'message'
-  id: string
-  content: LLMContentItem[]
-  role: string
-  status: string
-  phase?: string
-}
-
-export type LLMOutputItem = LLMFunctionCallItem | LLMMessageItem
-
-export interface LLMUsage {
-  requests: number
-  input_tokens: number
-  output_tokens: number
-  total_tokens: number
-}
-
-export interface LLMOutput {
-  output: LLMOutputItem[]
-  usage: LLMUsage
-  response_id: string
-  request_id: string
-  model?: string
-}
-
+// Step record as returned by GET /workflows/{id} — no per-step timestamps in the backend.
 export interface Step {
-  function_id: number
-  function_name: string
-  output: LLMOutput | string | null
+  step_id: number | null
+  function_name: string | null
+  status: 'SUCCESS' | 'ERROR'
+  duration_ms: number | null
   error: string | null
-  child_workflow_id: string | null
+  llm_model: string | null
+  tokens_in: number | null
+  tokens_out: number | null
+  provider_response_id: string | null
+  llm_input: unknown[] | null
+  llm_output: unknown[] | null
+  tool_name: string | null
+  tool_args: unknown
+  tool_match_status: string | null
+}
+
+// Step enriched client-side with synthetic timestamps derived from cumulative duration_ms.
+// These are NOT from the backend — they assume steps execute consecutively with no gap.
+// Bars on the Gantt will be slightly compressed relative to wall-clock time because
+// inter-step orchestration time (workflow function execution between steps) is not captured.
+// DBOS.sleep steps are correctly represented since their sleep duration IS in duration_ms.
+export interface StepWithTiming extends Step {
   started_at_epoch_ms: number
   completed_at_epoch_ms: number | null
 }
@@ -59,12 +39,12 @@ export interface WorkflowInfo {
   created_at: number
   updated_at: number
   recovery_attempts: number | null
-  input?: string
+  output: string | null
 }
 
 export interface WorkflowDetail {
   workflow: WorkflowInfo
-  steps: Step[]
+  steps: StepWithTiming[]
 }
 
 export interface WorkflowSummary {
@@ -72,20 +52,18 @@ export interface WorkflowSummary {
   name: string
   status: WorkflowStatus
   created_at: number
-  updated_at: number
+  completed_at: number
   recovery_attempts: number | null
-  step_count: number
-  input?: string
 }
 
 export type TurnKind = 'preflight' | 'agent' | 'final'
 
 export interface Turn {
-  turnNumber: number        // 1-indexed for agent/final; 0 for preflight
+  turnNumber: number
   kind: TurnKind
-  llmStep: Step | null      // null only for preflight
-  toolSteps: Step[]
+  llmStep: StepWithTiming | null
+  toolSteps: StepWithTiming[]
   startedAtMs: number
-  endedAtMs: number | null  // null if any step is still running
+  endedAtMs: number | null
   totalDurationMs: number | null
 }

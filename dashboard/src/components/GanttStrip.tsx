@@ -1,8 +1,8 @@
-import type { Step, Turn } from '../lib/types'
+import type { StepWithTiming, Turn } from '../lib/types'
 import { getStepKind, humanizeStepName, formatDuration, stepDurationMs } from '../lib/stepHelpers'
 
 interface Props {
-  steps: Step[]
+  steps: StepWithTiming[]
   turns: Turn[]
   workflowStart: number
   workflowEnd: number
@@ -11,27 +11,28 @@ interface Props {
 }
 
 const KIND_COLOR: Record<ReturnType<typeof getStepKind>, string> = {
-  llm: 'bg-slate-400 hover:bg-slate-500',
-  tool: 'bg-emerald-400 hover:bg-emerald-500',
-  sleep: 'bg-gray-300 hover:bg-gray-400',
-  other: 'bg-sky-400 hover:bg-sky-500',
+  llm: 'bg-slate-500 hover:bg-slate-400',
+  tool: 'bg-emerald-500 hover:bg-emerald-400',
+  sleep: 'bg-slate-700 hover:bg-slate-600',
+  other: 'bg-sky-500 hover:bg-sky-400',
 }
 
 const KIND_ACTIVE: Record<ReturnType<typeof getStepKind>, string> = {
-  llm: 'bg-slate-600',
-  tool: 'bg-emerald-600',
-  sleep: 'bg-gray-500',
-  other: 'bg-sky-600',
+  llm: 'bg-slate-400',
+  tool: 'bg-emerald-400',
+  sleep: 'bg-slate-600',
+  other: 'bg-sky-400',
 }
 
-// Subtle alternating band colors per turn kind
 const TURN_BAND: Record<Turn['kind'], (even: boolean) => string> = {
-  preflight: () => 'bg-gray-100/60',
-  agent: (even) => (even ? 'bg-transparent' : 'bg-slate-50/40'),
-  final: () => 'bg-green-50/50',
+  preflight: () => 'bg-slate-800/30',
+  agent: (even) => (even ? 'bg-transparent' : 'bg-slate-800/20'),
+  final: () => 'bg-emerald-900/20',
 }
 
 const TICK_COUNT = 5
+const ROW_HEIGHT = 30
+const ROW_GAP = 2
 
 export function GanttStrip({
   steps,
@@ -47,18 +48,19 @@ export function GanttStrip({
     Math.round((totalDuration * i) / TICK_COUNT),
   )
 
-  // Even/odd index among agent+final turns only (preflight always uses its own color)
+  const chartHeight = Math.max(steps.length, 1) * (ROW_HEIGHT + ROW_GAP) - ROW_GAP
+
   let agentIndex = 0
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-gray-100">
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+    <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+      <div className="px-4 py-2.5 border-b border-slate-800">
+        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
           Execution Timeline
         </h3>
       </div>
 
-      <div className="px-4 pt-3 pb-4">
+      <div className="px-4 pt-3 pb-4 bg-slate-950">
         {/* Tick labels */}
         <div className="relative h-4 mb-1">
           {ticks.map((ms) => {
@@ -66,7 +68,7 @@ export function GanttStrip({
             return (
               <span
                 key={ms}
-                className="absolute text-[10px] text-gray-400 -translate-x-1/2"
+                className="absolute text-[10px] text-slate-500 -translate-x-1/2"
                 style={{ left: `${pct}%` }}
               >
                 {ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`}
@@ -75,8 +77,8 @@ export function GanttStrip({
           })}
         </div>
 
-        {/* Chart area */}
-        <div className="relative" style={{ minHeight: `${steps.length * 36}px` }}>
+        {/* Chart area — one row per step, staircase layout */}
+        <div className="relative" style={{ height: `${chartHeight}px` }}>
           {/* Turn background bands */}
           {turns.map((turn) => {
             const bandStart = turn.startedAtMs
@@ -107,48 +109,49 @@ export function GanttStrip({
             )
           })}
 
-          {/* Turn boundary lines (vertical, at each turn start except the first) */}
+          {/* Turn boundary lines */}
           {turns.slice(1).map((turn) => {
             const pct = ((turn.startedAtMs - workflowStart) / totalDuration) * 100
             return (
               <div
                 key={`boundary-${turn.kind === 'preflight' ? 0 : turn.turnNumber}`}
-                className="absolute top-0 bottom-0 w-px bg-gray-200 z-[1]"
+                className="absolute top-0 bottom-0 w-px bg-slate-700 z-[1]"
                 style={{ left: `${pct}%` }}
               />
             )
           })}
 
-          {/* Vertical grid lines (tick positions) */}
+          {/* Vertical grid lines */}
           {ticks.map((ms) => {
             const pct = (ms / totalDuration) * 100
             return (
               <div
                 key={ms}
-                className="absolute top-0 bottom-0 w-px bg-gray-100 z-[1]"
+                className="absolute top-0 bottom-0 w-px bg-slate-800 z-[1]"
                 style={{ left: `${pct}%` }}
               />
             )
           })}
 
           {/* Step bars */}
-          {steps.map((step, idx) => {
+          {steps.map((step, index) => {
             const kind = getStepKind(step.function_name)
-            const isActive = step.function_id === activeStepId
+            const isActive = step.step_id === activeStepId
             const hasError = !!step.error
 
-            const leftPct =
-              ((step.started_at_epoch_ms - workflowStart) / totalDuration) * 100
+            const topPx = index * (ROW_HEIGHT + ROW_GAP)
+            const stepStart = step.started_at_epoch_ms ?? workflowStart
+            const leftPct = ((stepStart - workflowStart) / totalDuration) * 100
 
             const durMs =
               step.completed_at_epoch_ms != null
-                ? step.completed_at_epoch_ms - step.started_at_epoch_ms
-                : workflowEnd - step.started_at_epoch_ms
+                ? step.completed_at_epoch_ms - stepStart
+                : workflowEnd - stepStart
 
             const widthPct = Math.max((durMs / totalDuration) * 100, 0.5)
 
             const colorClass = hasError
-              ? 'bg-red-400 hover:bg-red-500'
+              ? 'bg-red-500 hover:bg-red-400'
               : isActive
               ? KIND_ACTIVE[kind]
               : KIND_COLOR[kind]
@@ -159,28 +162,23 @@ export function GanttStrip({
 
             return (
               <div
-                key={step.function_id}
-                className="absolute flex items-center z-[2]"
-                style={{ top: `${idx * 36}px`, height: '28px', left: 0, right: 0 }}
+                key={step.step_id ?? index}
+                className="absolute z-[2] group cursor-pointer"
+                style={{ top: `${topPx}px`, height: `${ROW_HEIGHT}px`, left: `${leftPct}%`, width: `${widthPct}%` }}
+                onClick={() => step.step_id != null && onStepClick(step.step_id)}
+                title={tooltip}
               >
                 <div
-                  className="absolute group cursor-pointer rounded transition-colors"
-                  style={{ left: `${leftPct}%`, width: `${widthPct}%`, height: '100%' }}
-                  onClick={() => onStepClick(step.function_id)}
-                  title={tooltip}
-                >
-                  <div
-                    className={`h-full w-full rounded transition-colors ${colorClass} ${
-                      step.completed_at_epoch_ms == null ? 'opacity-60 animate-pulse' : ''
-                    } ${isActive ? 'ring-2 ring-offset-1 ring-slate-400' : ''}`}
-                  />
-                  {/* Tooltip */}
-                  <div className="hidden group-hover:block absolute z-10 bottom-full left-1/2 -translate-x-1/2 mb-1.5 pointer-events-none">
-                    <div className="bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap shadow-lg">
-                      {tooltip}
-                    </div>
-                    <div className="w-2 h-2 bg-gray-900 rotate-45 mx-auto -mt-1" />
+                  className={`h-full w-full rounded transition-colors ${colorClass} ${
+                    step.completed_at_epoch_ms == null ? 'opacity-60 animate-pulse' : ''
+                  } ${isActive ? 'ring-2 ring-offset-1 ring-offset-slate-950 ring-slate-400' : ''}`}
+                />
+                {/* Tooltip */}
+                <div className="hidden group-hover:block absolute z-10 bottom-full left-1/2 -translate-x-1/2 mb-1.5 pointer-events-none">
+                  <div className="bg-slate-700 text-slate-50 text-xs rounded px-2 py-1 whitespace-nowrap shadow-lg">
+                    {tooltip}
                   </div>
+                  <div className="w-2 h-2 bg-slate-700 rotate-45 mx-auto -mt-1" />
                 </div>
               </div>
             )
@@ -188,15 +186,15 @@ export function GanttStrip({
         </div>
 
         {/* Legend */}
-        <div className="flex items-center gap-4 mt-3 pt-2 border-t border-gray-100">
+        <div className="flex items-center gap-4 mt-3 pt-2 border-t border-slate-800">
           {(['llm', 'tool', 'sleep'] as const).map((kind) => (
-            <span key={kind} className="flex items-center gap-1.5 text-xs text-gray-500">
+            <span key={kind} className="flex items-center gap-1.5 text-xs text-slate-500">
               <span className={`w-3 h-3 rounded ${KIND_COLOR[kind].split(' ')[0]}`} />
               {kind === 'llm' ? 'LLM call' : kind === 'tool' ? 'Tool call' : 'Sleep'}
             </span>
           ))}
-          <span className="flex items-center gap-1.5 text-xs text-gray-500">
-            <span className="w-3 h-3 rounded bg-red-400" />
+          <span className="flex items-center gap-1.5 text-xs text-slate-500">
+            <span className="w-3 h-3 rounded bg-red-500" />
             Error
           </span>
         </div>
