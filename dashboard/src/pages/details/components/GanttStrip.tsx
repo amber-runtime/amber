@@ -1,5 +1,5 @@
-import type { Step, AgentGroup } from '../lib/types'
-import { getStepKind, humanizeStepName, formatDuration, stepDurationMs } from '../lib/stepHelpers'
+import type { Step, AgentGroup } from '../../../lib/types'
+import { getStepKind, humanizeStepName, formatDuration, stepDurationMs } from '../../../lib/stepHelpers'
 
 interface Props {
   steps: Step[]

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import type { AgentGroup, Step } from '../lib/types'
-import { formatDuration, humanizeStepName } from '../lib/stepHelpers'
+import type { AgentGroup, Step } from '../../../lib/types'
+import { formatDuration, humanizeStepName } from '../../../lib/stepHelpers'
 import { StepCard } from './StepCard'
 
 interface Props {

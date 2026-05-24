@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import type { Step, WorkflowInfo } from '../lib/types'
-import { groupStepsByAgent } from '../lib/stepHelpers'
+import type { Step, WorkflowInfo } from '../../../lib/types'
+import { groupStepsByAgent } from '../../../lib/stepHelpers'
 import { GanttStrip } from './GanttStrip'
 import { TurnGroup } from './TurnGroup'
 

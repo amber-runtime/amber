@@ -1,9 +1,5 @@
 export type WorkflowStatus = 'SUCCESS' | 'PENDING' | 'ERROR' | 'CANCELLED'
 
-export interface Agent {
-  name: string
-}
-
 export interface Step {
   step_id: number | null
   function_name: string | null

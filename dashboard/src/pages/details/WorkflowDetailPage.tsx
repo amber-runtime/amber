@@ -1,11 +1,11 @@
 import { useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
-import { useWorkflows } from '../lib/workflowContext'
-import { fetchWorkflowDetail } from '../lib/api'
-import { WorkflowHeader } from '../components/WorkflowHeader'
-import { FinalAnswerCard } from '../components/FinalAnswerCard'
-import { StepTimeline } from '../components/StepTimeline'
+import { useWorkflows } from '../../lib/workflowContext'
+import { fetchWorkflowDetail } from '../../lib/api'
+import { WorkflowHeader } from './components/WorkflowHeader'
+import { FinalAnswerCard } from './components/FinalAnswerCard'
+import { StepTimeline } from './components/StepTimeline'
 
 export function WorkflowDetailPage() {
   const { id } = useParams<{ id: string }>()
