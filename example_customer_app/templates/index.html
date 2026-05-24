@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">Logistics operations workspace</p>
+          <h1>{{ title }}</h1>
+          <p class="subtitle">{{ subtitle }}</p>
+        </div>
+      </header>
+
+      <section class="summary-band" aria-label="Operations workflow summary">
+        <article>
+          <span>Research</span>
+          <strong>Vendor and market context</strong>
+          <p>Gather facts before committing team time or budget.</p>
+        </article>
+        <article>
+          <span>Memo</span>
+          <strong>Decision-ready recommendations</strong>
+          <p>Turn evidence, risks, and counterarguments into a clear next step.</p>
+        </article>
+        <article>
+          <span>Travel</span>
+          <strong>Site visit planning</strong>
+          <p>Coordinate business trips for customer, vendor, and warehouse visits.</p>
+        </article>
+      </section>
+
+      <section class="workspace" aria-label="Operations request launcher">
+        <aside class="specialists-panel">
+          <div class="section-heading">
+            <p class="eyebrow">Operations workflows</p>
+            <h2>Choose the type of request</h2>
+          </div>
+          <div id="specialist-list" class="specialist-list" aria-live="polite">
+            <div class="loading-card">Loading workflows...</div>
+          </div>
+        </aside>
+
+        <section class="task-panel">
+          <div class="selected-specialist">
+            <div>
+              <p class="eyebrow">Selected workflow</p>
+              <h2 id="selected-name">Loading...</h2>
+            </div>
+            <span id="selected-category" class="category-pill">Workflow</span>
+          </div>
+
+          <form id="task-form" class="task-form">
+            <label for="task-input">Describe the operations request</label>
+            <textarea
+              id="task-input"
+              name="input"
+              rows="8"
+              placeholder="Describe the vendor, market, memo, or travel request..."
+              required
+            ></textarea>
+            <div class="form-footer">
+              <p id="selected-description" class="selected-description">
+                Pick an operations workflow to start.
+              </p>
+              <button id="submit-button" type="submit" disabled>Start request</button>
+            </div>
+          </form>
+
+          <div id="result-panel" class="result-panel" hidden>
+            <div id="loading-indicator" class="loading-indicator" aria-hidden="true"></div>
+            <p id="result-kicker" class="eyebrow">Working on your request</p>
+            <h3 id="result-title">Working on your request</h3>
+            <p id="result-message" class="result-message">
+              This can take a moment while the workflow completes.
+            </p>
+            <div id="result-output" class="result-output" hidden></div>
+          </div>
+
+          <p id="error-message" class="error-message" role="alert" hidden></p>
+        </section>
+      </section>
+    </main>
+
+    <script src="{{ url_for('static', path='/app.js') }}"></script>
+  </body>
+</html>
