@@ -1,16 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { RefreshCw, CheckCircle2, XCircle, AlertCircle } from 'lucide-react'
-import type { WorkflowSummary, WorkflowStatus } from '../lib/types'
-import { useWorkflows } from '../lib/workflowContext'
-import { triggerWorkflow } from '../lib/api'
-import { NewWorkflowButton } from '../components/NewWorkflowButton'
-import { NewWorkflowModal } from '../components/NewWorkflowModal'
-import { showToast } from '../components/Toast'
-import { humanizeWorkflowName, formatRelativeTime, formatDuration } from '../lib/stepHelpers'
-
-const SHOW_RUN_BUTTON =
-  import.meta.env.DEV || import.meta.env.VITE_SHOW_RUN_BUTTON === 'true'
+import type { WorkflowSummary, WorkflowStatus } from '../../lib/types'
+import { useWorkflows } from '../../lib/workflowContext'
+import { humanizeWorkflowName, formatRelativeTime, formatDuration } from '../../lib/stepHelpers'
 
 type Filter = 'all' | 'completed' | 'running' | 'errored'
 
@@ -63,9 +56,8 @@ function workflowDuration(w: WorkflowSummary, now: number): string {
 
 export function WorkflowListPage() {
   const navigate = useNavigate()
-  const { workflows, loading, error, refresh, prependWorkflow } = useWorkflows()
+  const { workflows, loading, error, refresh } = useWorkflows()
   const [filter, setFilter] = useState<Filter>('all')
-  const [modalOpen, setModalOpen] = useState(false)
   const [now, setNow] = useState(Date.now())
 
   // Tick every second when any workflow is PENDING so durations update live
@@ -95,25 +87,6 @@ export function WorkflowListPage() {
     return target === null || w.status === target
   })
 
-  const handleNewWorkflow = async (agent: string, input: string, crashDemo: boolean) => {
-    try {
-      const result = await triggerWorkflow(agent, input, crashDemo)
-      const optimistic: WorkflowSummary = {
-        workflow_id: result.workflow_id,
-        name: agent,
-        status: 'PENDING',
-        created_at: Date.now(),
-        completed_at: Date.now(),
-        recovery_attempts: null,
-      }
-      prependWorkflow(optimistic)
-      setModalOpen(false)
-      showToast('Workflow started', `${result.workflow_id.slice(0, 8)}…`)
-    } catch (err) {
-      throw err  // re-throw so modal can display the error
-    }
-  }
-
   return (
     <div className="min-h-screen bg-slate-950">
       {/* Header */}
@@ -128,9 +101,6 @@ export function WorkflowListPage() {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            {SHOW_RUN_BUTTON && (
-              <NewWorkflowButton onClick={() => setModalOpen(true)} />
-            )}
             <button
               onClick={() => void refresh()}
               className="p-2 rounded-md hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
@@ -246,13 +216,6 @@ export function WorkflowListPage() {
           </div>
         )}
       </div>
-
-      {modalOpen && (
-        <NewWorkflowModal
-          onClose={() => setModalOpen(false)}
-          onSubmit={handleNewWorkflow}
-        />
-      )}
     </div>
   )
 }

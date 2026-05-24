@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { Copy, Check } from 'lucide-react'
-import type { WorkflowInfo, WorkflowStatus } from '../lib/types'
+import type { WorkflowInfo, WorkflowStatus } from '../../../lib/types'
 import {
   humanizeWorkflowName,
   formatTimestamp,
   formatDuration,
   sumTokens,
-} from '../lib/stepHelpers'
-import type { Step } from '../lib/types'
+} from '../../../lib/stepHelpers'
+import type { Step } from '../../../lib/types'
 
 interface Props {
   workflow: WorkflowInfo

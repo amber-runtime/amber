@@ -1,6 +1,6 @@
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { WorkflowStatus } from '../lib/types'
+import type { WorkflowStatus } from '../../../lib/types'
 
 interface Props {
   output: string | null

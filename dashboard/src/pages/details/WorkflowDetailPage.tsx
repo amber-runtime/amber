@@ -1,44 +1,74 @@
 import { useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
-import { useWorkflows } from '../lib/workflowContext'
-import { fetchWorkflowDetail } from '../lib/api'
-import { WorkflowHeader } from '../components/WorkflowHeader'
-import { FinalAnswerCard } from '../components/FinalAnswerCard'
-import { StepTimeline } from '../components/StepTimeline'
+import { useWorkflows } from '../../lib/workflowContext'
+import { fetchWorkflowDetail } from '../../lib/api'
+import { WorkflowHeader } from './components/WorkflowHeader'
+import { FinalAnswerCard } from './components/FinalAnswerCard'
+import { StepTimeline } from './components/StepTimeline'
+
+const DETAIL_POLL_DELAY_MS = 2000
 
 export function WorkflowDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { workflowDetails, setDetail } = useWorkflows()
   const data = id ? workflowDetails[id] : null
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollingRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const loadPromiseRef = useRef<Promise<void> | null>(null)
+  const loadWorkflowIdRef = useRef<string | null>(null)
 
   const load = async () => {
     if (!id) return
-    try {
-      const detail = await fetchWorkflowDetail(id)
-      setDetail(id, detail)
-    } catch {
-      // keep stale data on error
+    if (!loadPromiseRef.current || loadWorkflowIdRef.current !== id) {
+      const workflowId = id
+      loadWorkflowIdRef.current = workflowId
+      let promise: Promise<void> | null = null
+      promise = (async () => {
+        try {
+          const detail = await fetchWorkflowDetail(workflowId)
+          setDetail(workflowId, detail)
+        } catch {
+          // keep stale data on error
+        } finally {
+          if (promise && loadPromiseRef.current === promise) {
+            loadPromiseRef.current = null
+            loadWorkflowIdRef.current = null
+          }
+        }
+      })()
+      loadPromiseRef.current = promise
     }
+    await loadPromiseRef.current
   }
 
   useEffect(() => {
-    void load()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id])
+    let cancelled = false
 
-  // Poll every 2s while PENDING, stop when terminal
-  useEffect(() => {
-    if (pollingRef.current) clearInterval(pollingRef.current)
-    if (!data || data.workflow.status === 'PENDING') {
-      pollingRef.current = setInterval(() => {
-        void load()
-      }, 2000)
+    const clearPollingTimeout = () => {
+      if (pollingRef.current) {
+        clearTimeout(pollingRef.current)
+        pollingRef.current = null
+      }
     }
+
+    const shouldPoll = !data || data.workflow.status === 'PENDING'
+
+    const poll = async () => {
+      if (!id || cancelled) return
+      await load()
+      if (cancelled) return
+      pollingRef.current = setTimeout(() => {
+        void poll()
+      }, DETAIL_POLL_DELAY_MS)
+    }
+
+    clearPollingTimeout()
+    if (shouldPoll) void poll()
+
     return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current)
+      cancelled = true
+      clearPollingTimeout()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.workflow.status, id])

@@ -10,8 +10,8 @@ import {
   XCircle,
   Loader2,
 } from 'lucide-react'
-import type { Step } from '../lib/types'
-import { getStepKind, humanizeStepName, formatDuration, stepDurationMs } from '../lib/stepHelpers'
+import type { Step } from '../../../lib/types'
+import { getStepKind, humanizeStepName, formatDuration, stepDurationMs } from '../../../lib/stepHelpers'
 
 interface Props {
   step: Step
