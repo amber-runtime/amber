@@ -1,0 +1,49 @@
+# =============================================================================
+# Customer App -- agent runtime + workflow trigger (FastAPI + DBOS + OpenAI Agents)
+# =============================================================================
+# Build from repo root:
+#   docker build -f infra/docker/Dockerfile.customer-app -t customer-app .
+# Run:
+#   docker run -p 8003:8003 --env-file .env customer-app
+# =============================================================================
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# System deps for psycopg2 + health checks
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Layer 1: dependencies (cached unless pyproject/lock/sdk change)
+COPY pyproject.toml uv.lock ./
+COPY sdk/pyproject.toml sdk/
+COPY sdk/src/        sdk/src/
+
+RUN uv sync --frozen --no-dev
+
+# Layer 2: application code
+COPY sdk/                  sdk/
+COPY admin_control_plane/  admin_control_plane/
+COPY example_customer_app/ example_customer_app/
+COPY user_agents/          user_agents/
+
+# Prefix-stripping middleware for path-based ALB routing
+COPY infra/docker/strip_prefix.py strip_prefix.py
+
+EXPOSE 8003
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -sf http://localhost:8003/health || exit 1
+
+ENV ASGI_APP=example_customer_app.main:app
+ENV PATH_PREFIX=/api
+ENV PORT=8003
+
+CMD ["uv", "run", "python", "strip_prefix.py"]

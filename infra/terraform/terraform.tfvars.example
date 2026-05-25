@@ -1,0 +1,19 @@
+# =============================================================================
+# Example values — copy to terraform.tfvars and fill in your own
+# =============================================================================
+# DO NOT commit terraform.tfvars. It's already in .gitignore.
+# Copy this file:  cp terraform.tfvars.example terraform.tfvars
+# =============================================================================
+
+project_name = "aws-group-project"
+environment  = "dev"
+region       = "us-east-1"
+
+# Database — change the password! Generated password is used if blank.
+db_name     = "app"
+db_username = "dbadmin"
+# db_password = "generate-me-or-set-manually"
+
+# RDS sizing — bump for production
+db_instance_class    = "db.t4g.micro"
+db_allocated_storage = 20

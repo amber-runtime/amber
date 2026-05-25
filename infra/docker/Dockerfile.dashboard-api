@@ -1,0 +1,47 @@
+# =============================================================================
+# Dashboard API -- read-only workflow viewer (FastAPI + DBOS)
+# =============================================================================
+# Build from repo root:
+#   docker build -f infra/docker/Dockerfile.dashboard-api -t dashboard-api .
+# Run:
+#   docker run -p 8001:8001 --env-file .env dashboard-api
+# =============================================================================
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# System deps for psycopg2 + health checks
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Layer 1: dependencies (cached unless pyproject/lock/sdk change)
+COPY pyproject.toml uv.lock ./
+COPY sdk/pyproject.toml sdk/
+COPY sdk/src/        sdk/src/
+
+RUN uv sync --frozen --no-dev
+
+# Layer 2: application code (only what this service needs)
+COPY sdk/              sdk/
+COPY admin_control_plane/ admin_control_plane/
+
+# Prefix-stripping middleware for path-based ALB routing
+COPY infra/docker/strip_prefix.py strip_prefix.py
+
+EXPOSE 8001
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -sf http://localhost:8001/health || exit 1
+
+ENV ASGI_APP=admin_control_plane.dashboard_backend:app
+ENV PATH_PREFIX=/dashboard
+ENV PORT=8001
+
+CMD ["uv", "run", "python", "strip_prefix.py"]
