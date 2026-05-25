@@ -19,6 +19,7 @@ optional runtime server.
 """
 
 import os
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from typing import Optional
 
@@ -41,7 +42,18 @@ def get_dashboard_client() -> DashboardClient:
     return DashboardClient(db_url=DB_URL)
 
 
-app = FastAPI(title="Admin Dashboard", version="0.2.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    yield
+    if get_dashboard_client.cache_info().currsize:
+        client = get_dashboard_client()
+        try:
+            client.destroy()
+        finally:
+            get_dashboard_client.cache_clear()
+
+
+app = FastAPI(title="Admin Dashboard", version="0.2.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

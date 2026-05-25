@@ -35,6 +35,9 @@ class DashboardClient:
             dbos_system_schema=dbos_system_schema,
         )
 
+    def destroy(self) -> None:
+        self._client.destroy()
+
     async def list_workflows(
         self,
         *,

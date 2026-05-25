@@ -14,6 +14,14 @@ from sdk.dashboard_client import DashboardClient  # noqa: E402
 
 
 class DashboardClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_destroy_forwards_to_dbos_client(self):
+        client = DashboardClient.__new__(DashboardClient)
+        client._client = mock.Mock()
+
+        client.destroy()
+
+        client._client.destroy.assert_called_once_with()
+
     async def test_list_workflows_forwards_expected_flags(self):
         client = DashboardClient.__new__(DashboardClient)
         client._db_url = "postgresql://db"
