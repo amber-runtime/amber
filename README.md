@@ -88,7 +88,7 @@ The SDK lives in `sdk/src/sdk/`. Since it's installed as an editable package, yo
 **Current public API:**
 
 ```python
-from sdk import init, workflow, step, sleep, agentic_runner
+from sdk import init, workflow, step, sleep, agentic_runner, enqueue_agent
 ```
 
 | Function | What it does |
@@ -98,9 +98,117 @@ from sdk import init, workflow, step, sleep, agentic_runner
 | `@step()` | Mark a function as a checkpointed step |
 | `sleep(seconds)` | Durable sleep — skips elapsed time on crash recovery |
 | `agentic_runner(agent, prompt)` | Run an OpenAI Agents SDK agent through DBOS |
+| `enqueue_agent(agent_name, input)` | Add a registered agent workflow to the default DBOS queue |
 
 Agent workflows are registered when their modules are imported. In an app,
 import the modules that define `@register_agent` workflows during startup.
+
+## Queueing Agents
+
+Use `start_agent(...)` when the API process should start work immediately. Use
+`enqueue_agent(...)` when the API should return quickly and let a worker process
+drain queued work. In a split deployment, initialize the API process with
+`ensure_initialized(listen_queues=[])` so it can enqueue work without draining
+user queues.
+
+API-side enqueue:
+
+```python
+from sdk import enqueue_agent
+
+handle = await enqueue_agent("research-handoff-agent", user_input)
+return {"workflow_id": handle.workflow_id}
+```
+
+Worker-side template:
+
+```python
+from sdk import run_agent_worker
+
+run_agent_worker(
+    agent_modules=[
+        "my_app.agents.single_agent_demo",
+        "my_app.agents.multi_agent_demo",
+        "my_app.agents.queued_multi_agent_demo",
+    ],
+    queue_name="agent-runs",
+    worker_concurrency=1,
+)
+```
+
+In split deployments, the API and worker should import the same registered
+workflow modules so DBOS computes the same application version. Queue listening
+still controls what the worker drains: the worker only listens to `agent-runs`.
+
+`worker_concurrency` limits how many queued workflows each worker process runs at
+once. The optional `concurrency` argument sets a global queue cap across all
+workers. Worker count itself is deployment-owned: for ECS/Fargate, Terraform or
+Application Auto Scaling controls how many worker tasks are running.
+
+Effective parallelism is:
+
+```text
+min(worker_count * worker_concurrency, global_concurrency)
+```
+
+### Local Queue Demo
+
+Use a DBOS database both processes can reach, then start the API:
+
+```bash
+uv run uvicorn example_customer_app.main:app --port 8003
+```
+
+Start the queue worker in another terminal:
+
+```bash
+uv run python -m example_customer_app.worker
+```
+
+The API process launches DBOS with user queue listeners disabled. The worker
+process launches its own DBOS runtime and listens to `agent-runs`.
+
+Submit queued work:
+
+```bash
+curl -X POST 'http://localhost:8003/runs' \
+  -H 'Content-Type: application/json' \
+  -d '{"agent":"research-handoff-agent","input":"Prepare a research memo on AI dispatch copilots."}'
+```
+
+Poll the returned workflow ID:
+
+```bash
+curl 'http://localhost:8003/runs/<workflow_id>'
+```
+
+To test backlog behavior, stop the worker, submit a burst of queued runs, then
+restart the worker and confirm the runs drain:
+
+```bash
+for i in {1..20}; do
+  curl -s -X POST 'http://localhost:8003/runs' \
+    -H 'Content-Type: application/json' \
+    -d "{\"agent\":\"research-handoff-agent\",\"input\":\"Local queue test $i\"}" &
+done
+wait
+```
+
+### AWS/Staging Contract
+
+The SDK does not create AWS infrastructure. The deployment contract is:
+
+- API service runs the FastAPI app, for example `uvicorn example_customer_app.main:app`.
+- Worker service runs `python -m example_customer_app.worker`.
+- API and worker use the same code image/version.
+- API and worker use the same `DBOS_SYSTEM_DATABASE_URL` or `DB_URL`.
+- API and worker import the same registered workflow modules so DBOS application versions match.
+- API runtime disables user queue listeners; worker runtime listens to `agent-runs`.
+- ECS/Terraform controls worker task count, CloudWatch metrics, alarms, and autoscaling.
+
+For a first AWS validation, submit a manual burst of queued runs and watch the
+CloudWatch/ECS metrics: API enqueue latency, queue backlog, worker task count,
+worker logs, completed workflows, and backlog drain time.
 
 **Writing a new test:**
 
