@@ -73,6 +73,19 @@ class WorkflowListPage(BaseModel):
     has_more: bool
 
 
+class QueuedWorkflowSummary(BaseModel):
+    workflow_id: str
+    name: str
+    status: str
+    created_at: Optional[int]
+    queue_name: Optional[str]
+
+
+class QueuedWorkflowListPage(BaseModel):
+    workflows: list[QueuedWorkflowSummary]
+    has_more: bool
+
+
 @app.get("/workflows", response_model=WorkflowListPage)
 async def get_workflows(
     status: Optional[str] = Query(
@@ -101,6 +114,32 @@ async def get_workflows(
         for r in rows
     ]
     return WorkflowListPage(workflows=workflows, has_more=has_more)
+
+
+@app.get("/queued-workflows", response_model=QueuedWorkflowListPage)
+async def get_queued_workflows(
+    queue_name: Optional[str] = Query(None, description="Filter by specific queue name"),
+    limit: int = Query(50, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+):
+    """List workflows associated with a queue, newest first. Paginated via limit + offset."""
+    rows = await get_dashboard_client().list_queued_workflows(
+        queue_name=queue_name, limit=limit + 1, offset=offset
+    )
+    has_more = len(rows) > limit
+    if has_more:
+        rows = rows[:limit]
+    workflows = [
+        QueuedWorkflowSummary(
+            workflow_id=r["workflow_id"],
+            name=r["name"],
+            status=r["status"],
+            created_at=r["created_at"],
+            queue_name=r.get("queue_name"),
+        )
+        for r in rows
+    ]
+    return QueuedWorkflowListPage(workflows=workflows, has_more=has_more)
 
 
 @app.get("/workflows/{workflow_id}", response_model=WorkflowDetail)

@@ -4,6 +4,7 @@ import { RefreshCw, CheckCircle2, XCircle, AlertCircle, Loader2 } from 'lucide-r
 import type { WorkflowSummary, WorkflowStatus } from '../../lib/types'
 import { useWorkflows } from '../../lib/workflowContext'
 import { humanizeWorkflowName, formatRelativeTime, formatDuration } from '../../lib/stepHelpers'
+import { PageHeader } from '../../shared/PageHeader'
 
 type Filter = 'all' | 'completed' | 'running' | 'errored'
 
@@ -33,6 +34,8 @@ function StatusIcon({ status }: { status: WorkflowStatus }) {
     )
   if (status === 'ERROR')
     return <XCircle size={15} className="text-red-400 shrink-0" />
+  if (status === 'ENQUEUED')
+    return <span className="w-3.5 h-3.5 rounded-full bg-blue-500 shrink-0" />
   return <span className="w-3.5 h-3.5 rounded-full bg-slate-600 shrink-0" />
 }
 
@@ -89,28 +92,17 @@ export function WorkflowListPage() {
 
   return (
     <div className="min-h-screen bg-slate-950">
-      {/* Header */}
-      <div className="bg-slate-900 border-b border-slate-800 px-6 py-4">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-amber-500 font-semibold tracking-tight text-xl">Amber</span>
-            <span className="text-slate-700 select-none">·</span>
-            <h1 className="text-xl font-semibold text-slate-50 tracking-tight">Workflows</h1>
-            <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 text-xs font-medium">
-              {counts.all}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => void refresh()}
-              className="p-2 rounded-md hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
-              title="Refresh"
-            >
-              <RefreshCw size={16} />
-            </button>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        actions={
+          <button
+            onClick={() => void refresh()}
+            className="p-2 rounded-md hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw size={16} />
+          </button>
+        }
+      />
 
       <div className="max-w-5xl mx-auto px-6 py-5">
         {/* Filter chips */}

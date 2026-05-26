@@ -57,6 +57,31 @@ class DashboardClient:
         workflows = await self._client.list_workflows_async(**kwargs)
         return [_wf_to_dict(workflow) for workflow in workflows]
 
+    async def list_queued_workflows(
+        self,
+        *,
+        queue_name: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict]:
+        kwargs: dict = {
+            "limit": limit,
+            "offset": offset,
+            "sort_desc": True,
+            "load_input": False,
+            "load_output": False,
+            "queues_only": True,
+        }
+        if queue_name:
+            kwargs["queue_name"] = queue_name
+        workflows = await self._client.list_workflows_async(**kwargs)
+        result = []
+        for workflow in workflows:
+            d = _wf_to_dict(workflow)
+            d["queue_name"] = getattr(workflow, "queue_name", None)
+            result.append(d)
+        return result
+
     async def get_workflow(self, workflow_id: str) -> Optional[dict]:
         workflows = await self._client.list_workflows_async(
             workflow_ids=[workflow_id],

@@ -1,0 +1,208 @@
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { RefreshCw, AlertCircle, Loader2 } from 'lucide-react'
+import { fetchQueuedWorkflows } from '../../lib/api'
+import type { QueuedWorkflowSummary, WorkflowStatus } from '../../lib/types'
+import { humanizeWorkflowName, formatRelativeTime } from '../../lib/stepHelpers'
+import { PageHeader } from '../../shared/PageHeader'
+
+const POLL_DELAY_MS = 5000
+const PAGE_SIZE = 50
+
+const STATUS_STYLES: Record<WorkflowStatus, { label: string; className: string }> = {
+  ENQUEUED:  { label: 'Enqueued',  className: 'bg-blue-500/15 text-blue-300 border-blue-500/30' },
+  SUCCESS:   { label: 'Success',   className: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' },
+  PENDING:   { label: 'Running',   className: 'bg-amber-500/15 text-amber-300 border-amber-500/30' },
+  ERROR:     { label: 'Error',     className: 'bg-red-500/15 text-red-400 border-red-500/30' },
+  CANCELLED: { label: 'Cancelled', className: 'bg-slate-700/50 text-slate-400 border-slate-600' },
+}
+
+function StatusBadge({ status }: { status: WorkflowStatus }) {
+  const { label, className } = STATUS_STYLES[status] ?? STATUS_STYLES.CANCELLED
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${className}`}>
+      {label}
+    </span>
+  )
+}
+
+export function QueuedPage() {
+  const navigate = useNavigate()
+  const [workflows, setWorkflows] = useState<QueuedWorkflowSummary[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const loadedCountRef = useRef(PAGE_SIZE)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const fetchPage = useCallback(async () => {
+    try {
+      const page = await fetchQueuedWorkflows({ limit: loadedCountRef.current, offset: 0 })
+      setWorkflows(page.workflows)
+      setHasMore(page.hasMore)
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch queued workflows')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const refresh = useCallback(async () => {
+    await fetchPage()
+  }, [fetchPage])
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return
+    setLoadingMore(true)
+    try {
+      const page = await fetchQueuedWorkflows({ limit: PAGE_SIZE, offset: loadedCountRef.current })
+      setWorkflows((prev) => {
+        const seen = new Set(prev.map((w) => w.workflow_id))
+        return prev.concat(page.workflows.filter((w) => !seen.has(w.workflow_id)))
+      })
+      loadedCountRef.current += page.workflows.length
+      setHasMore(page.hasMore)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load more')
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [hasMore, loadingMore])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const schedule = () => {
+      timeoutRef.current = setTimeout(() => {
+        if (!cancelled) void poll()
+      }, POLL_DELAY_MS)
+    }
+
+    const poll = async () => {
+      await fetchPage()
+      if (!cancelled) schedule()
+    }
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        if (timeoutRef.current) clearTimeout(timeoutRef.current)
+      } else {
+        void poll()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibility)
+    void poll()
+
+    return () => {
+      cancelled = true
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [fetchPage])
+
+  return (
+    <div className="min-h-screen bg-slate-950">
+      <PageHeader
+        actions={
+          <button
+            onClick={() => void refresh()}
+            className="p-2 rounded-md hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw size={16} />
+          </button>
+        }
+      />
+
+      <div className="max-w-5xl mx-auto px-6 py-5">
+        {loading && (
+          <div className="flex items-center justify-center py-20 gap-3">
+            <div className="w-5 h-5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+            <span className="text-sm text-slate-500">Loading queued workflows…</span>
+          </div>
+        )}
+
+        {!loading && error && (
+          <div className="bg-slate-900 border border-red-500/30 rounded-lg px-5 py-6 flex items-start gap-3">
+            <AlertCircle size={16} className="text-red-400 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-red-400 font-medium mb-1">Failed to load queued workflows</p>
+              <p className="text-xs text-slate-500 font-mono">{error}</p>
+            </div>
+            <button
+              onClick={() => void refresh()}
+              className="shrink-0 px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 text-slate-300 rounded hover:bg-slate-700 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {!loading && !error && (
+          <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+            {workflows.length === 0 ? (
+              <div className="px-4 py-12 text-center text-sm text-slate-500">
+                No queued workflows.
+              </div>
+            ) : (
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800">
+                    <th className="px-4 py-2.5 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">
+                      Workflow
+                    </th>
+                    <th className="pr-4 py-2.5 text-right text-xs font-medium text-slate-400 uppercase tracking-wide whitespace-nowrap">
+                      Started
+                    </th>
+                    <th className="pr-4 py-2.5 text-right text-xs font-medium text-slate-400 uppercase tracking-wide">
+                      Status
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {workflows.map((w) => (
+                    <tr
+                      key={w.workflow_id}
+                      onClick={() => navigate(`/workflows/${w.workflow_id}`)}
+                      className="border-b last:border-b-0 border-slate-800 hover:bg-slate-800/50 cursor-pointer transition-colors"
+                    >
+                      <td className="px-4 py-3.5">
+                        <p className="text-sm font-medium text-slate-50">
+                          {humanizeWorkflowName(w.name)}
+                        </p>
+                        <span className="text-xs font-mono text-slate-500">
+                          {w.workflow_id}
+                        </span>
+                      </td>
+                      <td className="pr-4 py-3.5 text-xs text-slate-300 whitespace-nowrap text-right">
+                        {w.created_at != null ? formatRelativeTime(w.created_at) : '—'}
+                      </td>
+                      <td className="pr-4 py-3.5 text-right">
+                        <StatusBadge status={w.status} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            {hasMore && (
+              <button
+                type="button"
+                onClick={() => void loadMore()}
+                disabled={loadingMore}
+                className="w-full px-4 py-3 border-t border-slate-800 text-sm text-slate-300 hover:bg-slate-800/50 disabled:text-slate-600 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              >
+                {loadingMore && <Loader2 size={13} className="animate-spin" />}
+                {loadingMore ? 'Loading…' : 'Load more'}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
