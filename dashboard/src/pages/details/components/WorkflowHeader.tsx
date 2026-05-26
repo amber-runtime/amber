@@ -167,7 +167,7 @@ export function WorkflowHeader({ workflow, steps }: Props) {
       ? `${workflow.workflow_id.slice(0, 8)}…${workflow.workflow_id.slice(-4)}`
       : workflow.workflow_id
 
-  const canResume = workflow.status === 'ERROR'
+  const canResume = workflow.status === 'ERROR' || workflow.status === 'CANCELLED'
   const canCancel = workflow.status === 'PENDING'
 
   const handleResume = async () => {
