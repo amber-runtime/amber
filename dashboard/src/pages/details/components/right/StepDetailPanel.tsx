@@ -111,6 +111,15 @@ export function StepDetailPanel({ step }: Props) {
         <DefList rows={timingRows} />
       </Section>
 
+      {/* Step output — kind='other' fallback (restores old StepCard StepOutputBody).
+          Surfaces DBOS operation_outputs.output when no kind-specific section fires,
+          e.g., tool calls whose agent_events row got dropped at the data layer. */}
+      {kind === 'other' && step.step_output != null && (
+        <Section title="Step output" defaultExpanded>
+          <JsonBlock value={step.step_output} />
+        </Section>
+      )}
+
       {/* Error — only when present (no error message field shipped by backend yet) */}
       {hasError && (
         <Section title="Error" defaultExpanded>
