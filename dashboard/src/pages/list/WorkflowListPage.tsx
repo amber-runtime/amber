@@ -35,7 +35,12 @@ function StatusIcon({ status }: { status: WorkflowStatus }) {
   if (status === 'ERROR')
     return <XCircle size={15} className="text-red-400 shrink-0" />
   if (status === 'ENQUEUED')
-    return <span className="w-3.5 h-3.5 rounded-full bg-blue-500 shrink-0" />
+    return (
+      <span className="relative flex h-3 w-3 shrink-0 mt-0.5">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+        <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500" />
+      </span>
+    )
   return <span className="w-3.5 h-3.5 rounded-full bg-slate-600 shrink-0" />
 }
 
