@@ -14,16 +14,14 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-# ── DBOS API wrappers ─────────────────────────────────────────────────────────
-
 def _wf_to_dict(w, *, include_output: bool = False) -> dict:
     record = {
-        "workflow_id":       w.workflow_id,
-        "name":              w.name,
-        "status":            w.status,
-        "created_at":        w.created_at,
-        "updated_at":        w.updated_at,
-        "recovery_attempts": None,  # not exposed in WorkflowStatus
+        "workflow_id": w.workflow_id,
+        "name": w.name,
+        "status": w.status,
+        "created_at": w.created_at,
+        "updated_at": w.updated_at,
+        "recovery_attempts": None,
     }
     if include_output:
         output = getattr(w, "output", None)
@@ -38,6 +36,7 @@ async def list_workflows(
 ) -> list[dict]:
     """List workflows from DBOS, newest first."""
     from dbos import DBOS
+
     kwargs: dict = {
         "limit": limit,
         "offset": offset,
@@ -54,6 +53,7 @@ async def list_workflows(
 async def get_workflow(workflow_uuid: str) -> Optional[dict]:
     """Return a single workflow by ID, or None if not found."""
     from dbos import DBOS
+
     results = await DBOS.list_workflows_async(
         workflow_ids=[workflow_uuid], load_input=False, load_output=True
     )
@@ -63,6 +63,7 @@ async def get_workflow(workflow_uuid: str) -> Optional[dict]:
 async def get_steps(workflow_uuid: str) -> list[dict]:
     """Return all step records for a workflow."""
     from dbos import DBOS
+
     return await DBOS.list_workflow_steps_async(workflow_uuid)
 
 
@@ -88,12 +89,11 @@ def _epoch_ms_to_iso8601(epoch_ms: int | None) -> str | None:
     )
 
 
-# ── Agent events ──────────────────────────────────────────────────────────────
-
 def fetch_agent_events(workflow_id: str, db_url: str) -> list[dict]:
     """Return all agent_events rows for a workflow, ordered by capture time."""
     import psycopg2
     import psycopg2.extras
+
     conn = psycopg2.connect(db_url)
     conn.autocommit = True
     try:
@@ -130,8 +130,6 @@ async def fetch_agent_events_for_dashboard(workflow_id: str, db_url: str) -> lis
         return []
 
 
-# ── Step shaping ──────────────────────────────────────────────────────────────
-
 def build_step_records(
     steps: list[dict],
     agent_events: list[dict] | None = None,
@@ -146,13 +144,9 @@ def build_step_records(
       - output from DBOS operation_outputs
     Falls back to DBOS-only shape when agent_events is None or empty.
     """
-    # Build lookup: step_id → first matching event of each relevant type.
-    # Older tool_call rows from sync tools can carry step_id=null when
-    # on_span_end fires after the DBOS step context unwinds. Those rows are
-    # attached only when there is a single unambiguous DBOS step candidate.
     llm_by_step: dict[int, dict] = {}
     tool_by_step: dict[int, dict] = {}
-    unmatched_tools: dict[str, list[dict]] = {}  # tool_name → ordered list
+    unmatched_tools: dict[str, list[dict]] = {}
     if agent_events:
         for event in agent_events:
             sid = event.get("step_id")
@@ -202,26 +196,26 @@ def build_step_records(
         elif tool:
             event_type = "tool_call"
 
-        records.append({
-            "step_id":               step_id,
-            "function_name":         fn_name,
-            "event_type":            event_type,
-            "status":                "SUCCESS" if step.get("error") is None else "ERROR",
-            "duration_ms":           duration_ms,
-            "started_at_epoch_ms":   started_at_epoch_ms,
-            "completed_at_epoch_ms": completed_at_epoch_ms,
-            "step_output":           _to_dashboard_value(step.get("output")),
-            # LLM fields — populated for _model_call_step rows
-            "llm_model":             llm.get("model"),
-            "tokens_in":             llm.get("tokens_in"),
-            "tokens_out":            llm.get("tokens_out"),
-            "agent_name":            event.get("agent_name"),
-            "llm_input":             llm.get("llm_input"),
-            "llm_output":            llm.get("llm_output"),
-            # Tool fields — populated for tool step rows
-            "tool_name":             tool.get("tool_name") or fn_name,
-            "tool_args":             tool.get("tool_args"),
-            "tool_result":           tool.get("tool_result"),
-            "captured_at":           event.get("captured_at") or fallback_captured_at,
-        })
+        records.append(
+            {
+                "step_id": step_id,
+                "function_name": fn_name,
+                "event_type": event_type,
+                "status": "SUCCESS" if step.get("error") is None else "ERROR",
+                "duration_ms": duration_ms,
+                "started_at_epoch_ms": started_at_epoch_ms,
+                "completed_at_epoch_ms": completed_at_epoch_ms,
+                "step_output": _to_dashboard_value(step.get("output")),
+                "llm_model": llm.get("model"),
+                "tokens_in": llm.get("tokens_in"),
+                "tokens_out": llm.get("tokens_out"),
+                "agent_name": event.get("agent_name"),
+                "llm_input": llm.get("llm_input"),
+                "llm_output": llm.get("llm_output"),
+                "tool_name": tool.get("tool_name") or fn_name,
+                "tool_args": tool.get("tool_args"),
+                "tool_result": tool.get("tool_result"),
+                "captured_at": event.get("captured_at") or fallback_captured_at,
+            }
+        )
     return records

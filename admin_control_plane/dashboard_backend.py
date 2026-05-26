@@ -29,8 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from pydantic import BaseModel
 
-from sdk.dashboard_client import DashboardClient
-from sdk.models import WorkflowDetail, WorkflowSummary
+from sdk.dashboard import DashboardClient, WorkflowDetail, WorkflowSummary
 
 load_dotenv()
 

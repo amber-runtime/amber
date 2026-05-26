@@ -10,7 +10,7 @@ SDK_SRC = ROOT / "sdk" / "src"
 if str(SDK_SRC) not in sys.path:
     sys.path.insert(0, str(SDK_SRC))
 
-from sdk.dashboard_client import DashboardClient  # noqa: E402
+from sdk.dashboard import DashboardClient  # noqa: E402
 
 
 class DashboardClientTests(unittest.IsolatedAsyncioTestCase):
@@ -93,11 +93,11 @@ class DashboardClientTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             mock.patch(
-                "sdk.dashboard_client.fetch_agent_events_for_dashboard",
+                "sdk.dashboard.client.fetch_agent_events_for_dashboard",
                 mock.AsyncMock(return_value=[{"event_type": "tool_call", "step_id": 1}]),
             ) as fetch_events,
             mock.patch(
-                "sdk.dashboard_client.build_step_records",
+                "sdk.dashboard.client.build_step_records",
                 return_value=[{"step_id": 1, "event_type": "tool_call"}],
             ) as build_records,
         ):
