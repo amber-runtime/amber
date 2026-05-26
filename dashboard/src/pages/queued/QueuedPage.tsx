@@ -26,6 +26,18 @@ function StatusBadge({ status }: { status: WorkflowStatus }) {
   )
 }
 
+function AttemptsPill({ count }: { count: number | null }) {
+  if (count == null || count <= 0) return null
+  const className = count === 1
+    ? 'bg-slate-800 text-slate-400 border-slate-700'
+    : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${className}`}>
+      Attempts: {count}
+    </span>
+  )
+}
+
 export function QueuedPage() {
   const navigate = useNavigate()
   const [workflows, setWorkflows] = useState<QueuedWorkflowSummary[]>([])
@@ -160,6 +172,9 @@ export function QueuedPage() {
                     <th className="pr-4 py-2.5 text-right text-xs font-medium text-slate-400 uppercase tracking-wide">
                       Status
                     </th>
+                    <th className="pr-4 py-2.5 text-right text-xs font-medium text-slate-400 uppercase tracking-wide">
+                      Attempts
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -182,6 +197,9 @@ export function QueuedPage() {
                       </td>
                       <td className="pr-4 py-3.5 text-right">
                         <StatusBadge status={w.status} />
+                      </td>
+                      <td className="pr-4 py-3.5 text-right">
+                        <AttemptsPill count={w.attempts} />
                       </td>
                     </tr>
                   ))}

@@ -39,11 +39,14 @@ function StatusIcon({ status }: { status: WorkflowStatus }) {
   return <span className="w-3.5 h-3.5 rounded-full bg-slate-600 shrink-0" />
 }
 
-function RecoveryPill({ count }: { count: number }) {
-  if (count <= 0) return null
+function AttemptsPill({ count }: { count: number | null }) {
+  if (count == null || count <= 0) return null
+  const cls = count === 1
+    ? 'bg-slate-800 text-slate-400 border border-slate-700'
+    : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
   return (
-    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 whitespace-nowrap">
-      Recovered {count}×
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${cls}`}>
+      Attempts: {count}
     </span>
   )
 }
@@ -174,7 +177,7 @@ export function WorkflowListPage() {
                       Duration
                     </th>
                     <th className="pr-4 py-2.5 text-right text-xs font-medium text-slate-400 uppercase tracking-wide">
-                      Recovery
+                      Attempts
                     </th>
                   </tr>
                 </thead>
@@ -203,7 +206,7 @@ export function WorkflowListPage() {
                         {workflowDuration(w, now)}
                       </td>
                       <td className="pr-4 py-3.5 text-right">
-                        <RecoveryPill count={w.recoveries} />
+                        <AttemptsPill count={w.attempts} />
                       </td>
                     </tr>
                   ))}

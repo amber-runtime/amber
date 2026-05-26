@@ -30,6 +30,7 @@ export interface WorkflowInfo {
   created_at: number
   updated_at: number
   recovery_attempts: number | null   // raw DBOS counter; 1 = first run, no recovery
+  attempts: number | null
   recoveries: number                 // derived: max(0, recovery_attempts - 1)
   output: string | null
 }
@@ -46,6 +47,7 @@ export interface WorkflowSummary {
   created_at: number
   completed_at: number
   recovery_attempts: number | null   // raw DBOS counter; 1 = first run, no recovery
+  attempts: number | null
   recoveries: number                 // derived: max(0, recovery_attempts - 1)
 }
 
@@ -63,6 +65,8 @@ export interface QueuedWorkflowSummary {
   status: WorkflowStatus
   created_at: number | null
   queue_name: string | null
+  recovery_attempts: number | null
+  attempts: number | null
 }
 
 export interface QueuedWorkflowListPage {

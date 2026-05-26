@@ -26,6 +26,7 @@ const STATUS_STYLES: Record<WorkflowStatus, string> = {
   PENDING: 'bg-amber-500/15 text-amber-300 border border-amber-500/30',
   ERROR: 'bg-red-500/15 text-red-300 border border-red-500/30',
   CANCELLED: 'bg-slate-800 text-slate-400 border border-slate-700',
+  ENQUEUED: 'bg-blue-500/15 text-blue-300 border border-blue-500/30',
 }
 
 function StatItem({ label, value }: { label: string; value: string }) {
@@ -83,7 +84,7 @@ export function WorkflowHeader({ workflow, steps }: Props) {
 
   const tokensIn = sumTokensIn(steps)
   const tokensOut = sumTokensOut(steps)
-  const recoveries = workflow.recoveries
+  const attempts = workflow.attempts
   const cost = estimateCost(steps)
   const llmCalls = countLlmCalls(steps)
   const toolCalls = countToolCalls(steps)
@@ -173,9 +174,13 @@ export function WorkflowHeader({ workflow, steps }: Props) {
           <StatItem label="Duration" value={formatDuration(totalDuration)} />
         )}
 
-        {recoveries > 0 && (
-          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30">
-            Recovered {recoveries}×
+        {attempts != null && attempts > 0 && (
+          <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${
+            attempts === 1
+              ? 'bg-slate-800 text-slate-400 border-slate-700'
+              : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+          }`}>
+            Attempts: {attempts}
           </span>
         )}
 

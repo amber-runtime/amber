@@ -11,16 +11,18 @@ async function handleResponse<T>(res: Response): Promise<T> {
 }
 
 // DBOS's recovery_attempts is "times attempted" (1 = ran once, no recovery).
-// Derive the user-facing "times recovered" once here so render sites don't
-// need to know the off-by-one.
-function withRecoveries<T extends { recovery_attempts: number | null }>(
+// Preserve that raw value for UI labels and also keep the old recoveries derivation
+// for visualizations that specifically mean "auto-recovered after failure".
+function withAttempts<T extends { recovery_attempts: number | null }>(
   w: T,
-): T & { recoveries: number } {
-  return { ...w, recoveries: Math.max(0, (w.recovery_attempts ?? 1) - 1) }
+): T & { attempts: number | null; recoveries: number } {
+  const attempts = w.recovery_attempts
+  return { ...w, attempts, recoveries: Math.max(0, (attempts ?? 1) - 1) }
 }
 
-type RawWorkflowSummary = Omit<WorkflowSummary, 'recoveries'>
-type RawWorkflowInfo = Omit<WorkflowInfo, 'recoveries'>
+type RawWorkflowSummary = Omit<WorkflowSummary, 'attempts' | 'recoveries'>
+type RawWorkflowInfo = Omit<WorkflowInfo, 'attempts' | 'recoveries'>
+type RawQueuedWorkflowSummary = Omit<QueuedWorkflowSummary, 'attempts'>
 
 export async function fetchWorkflows(
   options: { limit?: number; offset?: number } = {},
@@ -35,7 +37,7 @@ export async function fetchWorkflows(
     has_more: boolean
   }>(res)
   return {
-    workflows: raw.workflows.map(withRecoveries),
+    workflows: raw.workflows.map(withAttempts),
     hasMore: raw.has_more,
   }
 }
@@ -47,7 +49,7 @@ export async function fetchWorkflowDetail(id: string): Promise<WorkflowDetail> {
     steps: WorkflowDetail['steps']
     events: unknown[]
   }>(res)
-  return { workflow: withRecoveries(raw.workflow), steps: raw.steps }
+  return { workflow: withAttempts(raw.workflow), steps: raw.steps }
 }
 
 export async function resumeWorkflow(workflowId: string): Promise<void> {
@@ -75,6 +77,6 @@ export async function fetchQueuedWorkflows(
   if (options.queueName != null) params.set('queue_name', options.queueName)
   const qs = params.toString()
   const res = await fetch(`${API_BASE}/queued-workflows${qs ? `?${qs}` : ''}`)
-  const raw = await handleResponse<{ workflows: QueuedWorkflowSummary[]; has_more: boolean }>(res)
-  return { workflows: raw.workflows, hasMore: raw.has_more }
+  const raw = await handleResponse<{ workflows: RawQueuedWorkflowSummary[]; has_more: boolean }>(res)
+  return { workflows: raw.workflows.map(withAttempts), hasMore: raw.has_more }
 }
