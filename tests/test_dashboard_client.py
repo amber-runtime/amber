@@ -1,5 +1,6 @@
 import sys
 import unittest
+import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -43,10 +44,48 @@ class DashboardClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rows[0]["workflow_id"], "wf-1")
         client._client.list_workflows_async.assert_awaited_once_with(
             limit=10,
+            offset=0,
             sort_desc=True,
             load_input=False,
             load_output=False,
             status="SUCCESS",
+        )
+
+    async def test_list_queue_workflows_forwards_queue_filters_without_queues_only(self):
+        client = DashboardClient.__new__(DashboardClient)
+        client._db_url = "postgresql://db"
+        client._client = mock.Mock()
+        client._client.list_workflows_async = mock.AsyncMock(
+            return_value=[
+                SimpleNamespace(
+                    workflow_id="wf-1",
+                    name="agent",
+                    status="SUCCESS",
+                    created_at=1,
+                    updated_at=2,
+                    queue_name="agent-runs",
+                )
+            ]
+        )
+
+        rows = await client.list_queue_workflows(
+            queue_name="agent-runs",
+            start_time="2026-05-26T00:00:00Z",
+            limit=10,
+            offset=20,
+            sort_desc=False,
+        )
+
+        self.assertEqual(rows[0]["workflow_id"], "wf-1")
+        self.assertEqual(rows[0]["queue_name"], "agent-runs")
+        client._client.list_workflows_async.assert_awaited_once_with(
+            limit=10,
+            offset=20,
+            sort_desc=False,
+            load_input=False,
+            load_output=False,
+            queue_name="agent-runs",
+            start_time="2026-05-26T00:00:00Z",
         )
 
     async def test_get_workflow_includes_output(self):
@@ -139,3 +178,70 @@ class DashboardClientTests(unittest.IsolatedAsyncioTestCase):
             result, {"workflow_id": "wf-1", "action": "cancel", "accepted": True}
         )
         client._client.cancel_workflow_async.assert_awaited_once_with("wf-1")
+
+
+class QueueDrainReporterTests(unittest.IsolatedAsyncioTestCase):
+    def load_reporter(self):
+        spec = importlib.util.spec_from_file_location(
+            "queue_drain_report_under_test",
+            ROOT / "tests/load_testing/scripts/queue_drain_report.py",
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        return module
+
+    async def test_reporter_uses_dashboard_client(self):
+        reporter = self.load_reporter()
+
+        class FakeDashboardClient:
+            instances = []
+
+            def __init__(self, *, db_url: str):
+                self.db_url = db_url
+                self.destroyed = False
+                FakeDashboardClient.instances.append(self)
+
+            async def list_queue_workflows(self, **kwargs):
+                self.last_kwargs = kwargs
+                return [
+                    {
+                        "workflow_id": "wf-1",
+                        "name": "synthetic-queue-agent",
+                        "status": "SUCCESS",
+                        "created_at": 1,
+                        "updated_at": 2,
+                        "queue_name": "agent-runs",
+                    }
+                ]
+
+            def destroy(self):
+                self.destroyed = True
+
+        args = SimpleNamespace(
+            db_url="postgresql://db",
+            start_time="2026-05-26T00:00:00Z",
+            queue_name="agent-runs",
+            min_total=1,
+            timeout=1.0,
+            poll_interval=0.01,
+            page_size=100,
+            allow_errors=False,
+        )
+
+        with mock.patch.object(reporter, "DashboardClient", FakeDashboardClient):
+            exit_code = await reporter.run_report(args)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(FakeDashboardClient.instances[0].db_url, "postgresql://db")
+        self.assertTrue(FakeDashboardClient.instances[0].destroyed)
+        self.assertEqual(
+            FakeDashboardClient.instances[0].last_kwargs,
+            {
+                "queue_name": "agent-runs",
+                "start_time": "2026-05-26T00:00:00Z",
+                "limit": 100,
+                "offset": 0,
+                "sort_desc": False,
+            },
+        )

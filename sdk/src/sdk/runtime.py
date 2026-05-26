@@ -115,6 +115,11 @@ class WorkerService:
         on_conflict: str = "update_if_latest_version",
         keep_alive: bool = True,
     ) -> None:
+        if concurrency is not None and worker_concurrency is not None:
+            if concurrency < worker_concurrency:
+                raise ValueError(
+                    "concurrency must be greater than or equal to worker_concurrency"
+                )
         self.runtime = runtime or _get_default_runtime()
         self.agent_modules = list(agent_modules)
         self.queue_name = queue_name

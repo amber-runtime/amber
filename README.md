@@ -208,6 +208,9 @@ done
 wait
 ```
 
+For repeatable local queue load testing with k6 and a DBOS drain reporter, see
+[`tests/load_testing/README.md`](tests/load_testing/README.md).
+
 ### AWS/Staging Contract
 
 The SDK does not create AWS infrastructure. The deployment contract is:
