@@ -73,3 +73,16 @@ export interface WorkflowListPage {
   workflows: WorkflowSummary[]
   hasMore: boolean
 }
+
+export interface ModelPricing {
+  input: number
+  output: number
+  cache_read: number | null
+  cache_creation: number | null
+}
+
+export interface PricingResponse {
+  models: Record<string, ModelPricing>
+  synced_at: number | null
+  error?: string
+}

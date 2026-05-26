@@ -11,6 +11,8 @@ import {
   formatCost,
   countLlmCalls,
   countToolCalls,
+  computeCostBreakdown,
+  type CostBreakdownEntry,
 } from '../../../lib/stepHelpers'
 import { resumeWorkflow, cancelWorkflow } from '../../../lib/api'
 import { showToast } from '../../../shared/Toast'
@@ -33,6 +35,78 @@ function StatItem({ label, value }: { label: string; value: string }) {
     <span>
       <span className="text-slate-500">{label}: </span>
       <span className="text-slate-300 font-medium">{value}</span>
+    </span>
+  )
+}
+
+function formatRate(perToken: number): string {
+  return `$${(perToken * 1_000_000).toFixed(2)} / 1M`
+}
+
+function formatBreakdownCost(n: number): string {
+  return `$${n.toFixed(4)}`
+}
+
+function CostBreakdownPanel({ breakdown }: { breakdown: CostBreakdownEntry[] }) {
+  const total = breakdown.reduce((sum, e) => sum + (e.subtotal ?? 0), 0)
+  return (
+    <div
+      role="tooltip"
+      className="absolute top-full left-0 mt-1 z-50 w-[280px] bg-slate-900 border border-slate-700 rounded-md shadow-lg shadow-black/50 p-3 text-xs font-normal normal-case"
+    >
+      <div className="space-y-3">
+        {breakdown.map((entry) => (
+          <div key={entry.model}>
+            <div className="text-slate-200 font-medium mb-1 break-all">
+              {entry.model}
+            </div>
+            {entry.subtotal == null ? (
+              <div className="pl-2 text-slate-500 italic">no pricing available</div>
+            ) : (
+              <div className="pl-2 grid grid-cols-[auto_1fr_auto] gap-x-2 gap-y-0.5 font-mono tabular-nums text-[11px]">
+                <span className="text-slate-400">In:</span>
+                <span className="text-slate-300">
+                  {entry.inputTokens.toLocaleString()} × {formatRate(entry.inputRate!)}
+                </span>
+                <span className="text-slate-200 text-right">
+                  = {formatBreakdownCost(entry.inputCost!)}
+                </span>
+                <span className="text-slate-400">Out:</span>
+                <span className="text-slate-300">
+                  {entry.outputTokens.toLocaleString()} × {formatRate(entry.outputRate!)}
+                </span>
+                <span className="text-slate-200 text-right">
+                  = {formatBreakdownCost(entry.outputCost!)}
+                </span>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="border-t border-slate-700 mt-3 pt-2 flex items-baseline justify-between font-mono tabular-nums">
+        <span className="text-slate-400 text-xs">Total:</span>
+        <span className="text-amber-300 text-xs font-medium">
+          {formatBreakdownCost(total)}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function CostStat({ steps, cost }: { steps: Step[]; cost: number | null }) {
+  const [open, setOpen] = useState(false)
+  const breakdown = computeCostBreakdown(steps)
+  return (
+    <span
+      className="relative"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onBlur={() => setOpen(false)}
+      tabIndex={breakdown.length > 0 ? 0 : -1}
+    >
+      <StatItem label="Cost" value={formatCost(cost)} />
+      {open && breakdown.length > 0 && <CostBreakdownPanel breakdown={breakdown} />}
     </span>
   )
 }
@@ -196,7 +270,7 @@ export function WorkflowHeader({ workflow, steps }: Props) {
           />
         )}
 
-        <StatItem label="Cost" value={formatCost(cost)} />
+        <CostStat steps={steps} cost={cost} />
       </div>
     </div>
   )

@@ -188,7 +188,9 @@ export function StepDetailPanel({ step }: Props) {
               ['Tokens in', (step.tokens_in ?? 0).toLocaleString()],
               ['Tokens out', (step.tokens_out ?? 0).toLocaleString()],
               ['Total', ((step.tokens_in ?? 0) + (step.tokens_out ?? 0)).toLocaleString()],
-              ['Model', step.llm_model ?? '—'],
+              ...(step.llm_model
+                ? ([['Model', step.llm_model]] as Array<[string, string]>)
+                : []),
             ]}
           />
         </Section>

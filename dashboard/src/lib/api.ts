@@ -1,4 +1,4 @@
-import type { WorkflowSummary, WorkflowDetail, WorkflowListPage, WorkflowInfo, QueuedWorkflowSummary, QueuedWorkflowListPage } from './types'
+import type { WorkflowSummary, WorkflowDetail, WorkflowListPage, WorkflowInfo, QueuedWorkflowSummary, QueuedWorkflowListPage, PricingResponse } from './types'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL as string
 
@@ -64,6 +64,11 @@ export async function cancelWorkflow(workflowId: string): Promise<void> {
     { method: 'POST' },
   )
   await handleResponse<unknown>(res)
+}
+
+export async function fetchPricing(): Promise<PricingResponse> {
+  const res = await fetch(`${API_BASE}/pricing`)
+  return handleResponse<PricingResponse>(res)
 }
 
 export async function fetchQueuedWorkflows(

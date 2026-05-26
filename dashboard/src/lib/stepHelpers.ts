@@ -1,4 +1,5 @@
-import type { Step, AgentGroup, WorkflowInfo } from './types'
+import type { Step, AgentGroup, WorkflowInfo, ModelPricing } from './types'
+import { getPricing } from './pricingStore'
 
 export type StepKind = 'llm' | 'tool' | 'sleep' | 'other'
 
@@ -247,40 +248,97 @@ export function findLargestRecoveryGap(
   return best
 }
 
-// USD per million tokens. Prices accurate as of late 2025 — update when the
-// model lineup or OpenAI pricing changes. Matching is substring-based against
-// step.llm_model so date-stamped variants (e.g. "gpt-4o-2024-08-06") and
-// provider prefixes still match. More specific keys must come first.
-const MODEL_PRICING: Array<{ match: string; in: number; out: number }> = [
-  { match: 'gpt-5.4-mini',   in: 0.15,  out: 0.60 },
-  { match: 'gpt-5.4-turbo',  in: 10.0,  out: 30.0 },
-  { match: 'gpt-5.4',        in: 2.50,  out: 10.0 },
-  { match: 'gpt-4o-mini',    in: 0.15,  out: 0.60 },
-  { match: 'gpt-4-turbo',    in: 10.0,  out: 30.0 },
-  { match: 'gpt-4o',         in: 2.50,  out: 10.0 },
-]
+const DATE_SUFFIX_RE = /-\d{4}-\d{2}-\d{2}$/
+const _warnedModels = new Set<string>()
 
-function priceFor(model: string): { in: number; out: number } | null {
-  const lower = model.toLowerCase()
-  for (const entry of MODEL_PRICING) {
-    if (lower.includes(entry.match)) return { in: entry.in, out: entry.out }
+function lookupPricing(model: string): ModelPricing | null {
+  const table = getPricing()
+  const direct = table[model]
+  if (direct) return direct
+  const stripped = model.replace(DATE_SUFFIX_RE, '')
+  if (stripped !== model) {
+    const fallback = table[stripped]
+    if (fallback) return fallback
+  }
+  if (!_warnedModels.has(model)) {
+    _warnedModels.add(model)
+    console.warn(`No pricing entry for model: ${model}`)
   }
   return null
 }
 
+// LiteLLM stores prices as USD per token, so we multiply directly (no /1M).
+// Cache fields are intentionally ignored for MVP.
 export function estimateCost(steps: Step[]): number | null {
   let total = 0
   let priced = 0
   for (const step of steps) {
     if (!step.llm_model) continue
     if (step.tokens_in == null && step.tokens_out == null) continue
-    const price = priceFor(step.llm_model)
+    const price = lookupPricing(step.llm_model)
     if (!price) continue
-    total += ((step.tokens_in ?? 0) * price.in) / 1_000_000
-    total += ((step.tokens_out ?? 0) * price.out) / 1_000_000
+    total += (step.tokens_in ?? 0) * price.input
+    total += (step.tokens_out ?? 0) * price.output
     priced++
   }
   return priced === 0 ? null : total
+}
+
+export interface CostBreakdownEntry {
+  model: string
+  inputTokens: number
+  inputRate: number | null
+  inputCost: number | null
+  outputTokens: number
+  outputRate: number | null
+  outputCost: number | null
+  subtotal: number | null
+}
+
+// Per-model token totals + cost math. Models without a pricing entry are
+// included with null rate/cost fields so the UI can render "no pricing
+// available" instead of silently dropping them.
+export function computeCostBreakdown(steps: Step[]): CostBreakdownEntry[] {
+  const totals = new Map<string, { in: number; out: number }>()
+  for (const step of steps) {
+    if (!step.llm_model) continue
+    if (step.tokens_in == null && step.tokens_out == null) continue
+    const cur = totals.get(step.llm_model) ?? { in: 0, out: 0 }
+    cur.in += step.tokens_in ?? 0
+    cur.out += step.tokens_out ?? 0
+    totals.set(step.llm_model, cur)
+  }
+
+  const out: CostBreakdownEntry[] = []
+  for (const [model, toks] of totals) {
+    const price = lookupPricing(model)
+    if (price == null) {
+      out.push({
+        model,
+        inputTokens: toks.in,
+        inputRate: null,
+        inputCost: null,
+        outputTokens: toks.out,
+        outputRate: null,
+        outputCost: null,
+        subtotal: null,
+      })
+    } else {
+      const inputCost = toks.in * price.input
+      const outputCost = toks.out * price.output
+      out.push({
+        model,
+        inputTokens: toks.in,
+        inputRate: price.input,
+        inputCost,
+        outputTokens: toks.out,
+        outputRate: price.output,
+        outputCost,
+        subtotal: inputCost + outputCost,
+      })
+    }
+  }
+  return out
 }
 
 export function formatCost(cost: number | null): string {

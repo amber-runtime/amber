@@ -1,6 +1,11 @@
 import { CheckCircle2, XCircle } from 'lucide-react'
 import type { Step, WorkflowInfo, WorkflowStatus } from '../../../../lib/types'
-import { formatTimestamp, humanizeWorkflowName } from '../../../../lib/stepHelpers'
+import {
+  formatRelativeTime,
+  formatTimestamp,
+  humanizeWorkflowName,
+} from '../../../../lib/stepHelpers'
+import { usePricingSyncedAt } from '../../../../lib/pricingStore'
 import { Section } from './Section'
 import { DefList } from './DefList'
 import { CopyButton } from './CopyButton'
@@ -66,12 +71,51 @@ function countAgents(steps: Step[]): { count: number; preflightOnly: boolean } {
   return { count: distinct.size, preflightOnly: distinct.size === 0 }
 }
 
+function uniqueModels(steps: Step[]): string[] {
+  const seen = new Set<string>()
+  const ordered: string[] = []
+  for (const step of steps) {
+    if (step.llm_model && !seen.has(step.llm_model)) {
+      seen.add(step.llm_model)
+      ordered.push(step.llm_model)
+    }
+  }
+  return ordered
+}
+
+function ModelsCell({ models }: { models: string[] }) {
+  if (models.length <= 3) {
+    return <span>{models.join(', ')}</span>
+  }
+  return (
+    <div>
+      <div>{models.length} models</div>
+      <div className="text-slate-400 mt-0.5 text-[11px] font-normal">
+        {models.join(', ')}
+      </div>
+    </div>
+  )
+}
+
+function PricingSyncedAt({ syncedAt }: { syncedAt: number | null }) {
+  if (syncedAt == null) {
+    return <span className="text-amber-400">Pricing not yet synced</span>
+  }
+  return (
+    <span className="text-slate-400">
+      Pricing synced {formatRelativeTime(syncedAt)}
+    </span>
+  )
+}
+
 export function WorkflowDefaultPanel({ workflow, steps }: Props) {
   const inputAvailable = false   // backend-blocked; field doesn't exist on WorkflowInfo yet
   const finalAnswerExpandedByDefault =
     workflow.status === 'SUCCESS' && workflow.output != null
   const recoveries = workflow.recoveries
   const agents = countAgents(steps)
+  const models = uniqueModels(steps)
+  const pricingSyncedAt = usePricingSyncedAt()
 
   const metadataRows: Array<[string, React.ReactNode]> = [
     [
@@ -91,6 +135,13 @@ export function WorkflowDefaultPanel({ workflow, steps }: Props) {
       'Agents',
       agents.preflightOnly ? 'Pre-flight only' : String(agents.count),
     ],
+    ...(models.length > 0
+      ? ([[
+          models.length === 1 ? 'Model' : 'Models',
+          <ModelsCell key="models" models={models} />,
+        ]] as Array<[string, React.ReactNode]>)
+      : []),
+    ['Pricing', <PricingSyncedAt key="pricing" syncedAt={pricingSyncedAt} />],
   ]
 
   return (
