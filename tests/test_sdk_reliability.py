@@ -614,7 +614,7 @@ class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
-    async def test_agent_service_enqueue_submits_registered_workflow_without_queue_registration(self):
+    async def test_agent_service_enqueue_ensures_queue_exists_before_submission(self):
         async def run_topic(topic: str) -> str:
             return topic
 
@@ -625,10 +625,17 @@ class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(handle.workflow_id, "workflow-enqueued")
         self.assertEqual(len(self.DBOS.init_calls), 1)
-        self.assertEqual(self.DBOS.registered_queues, [])
+        self.assertEqual(
+            self.DBOS.registered_queues,
+            [("agent-runs", {"on_conflict": "never_update"})],
+        )
         self.assertEqual(
             self.DBOS.enqueued_workflows,
             [("agent-runs", workflow_fn, "hello")],
+        )
+        self.assertEqual(
+            self.DBOS.call_order,
+            ["init", "launch", ("register_queue", "agent-runs")],
         )
 
     def test_worker_service_run_imports_modules_configures_queue_before_launch(self):
