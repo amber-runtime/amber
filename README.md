@@ -113,9 +113,11 @@ Use `AgentService.run(...)` when the API process should start work immediately.
 Use `AgentService.enqueue(...)` when the API should return quickly and let a
 worker process drain queued work. In a split deployment, initialize the API
 runtime with `listen_queues=[]` so it can enqueue work without draining user
-queues. Queue configuration is owned by the worker runtime; enqueue submission
-does not require an active worker, but queued work will not execute until a
-worker runtime is running and listening on the queue.
+queues. `AgentService.enqueue(...)` lazily ensures the queue exists so app/API
+processes can submit background work before any worker has started. Queue
+configuration is still owned by the worker runtime; enqueue submission does not
+require an active worker, but queued work will not execute until a worker
+runtime is running and listening on the queue.
 
 API-side enqueue:
 

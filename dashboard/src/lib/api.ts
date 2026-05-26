@@ -1,4 +1,4 @@
-import type { WorkflowSummary, WorkflowDetail, WorkflowListPage, WorkflowInfo } from './types'
+import type { WorkflowSummary, WorkflowDetail, WorkflowListPage, WorkflowInfo, QueuedWorkflowSummary, QueuedWorkflowListPage } from './types'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL as string
 
@@ -64,4 +64,17 @@ export async function cancelWorkflow(workflowId: string): Promise<void> {
     { method: 'POST' },
   )
   await handleResponse<unknown>(res)
+}
+
+export async function fetchQueuedWorkflows(
+  options: { limit?: number; offset?: number; queueName?: string } = {},
+): Promise<QueuedWorkflowListPage> {
+  const params = new URLSearchParams()
+  if (options.limit != null) params.set('limit', String(options.limit))
+  if (options.offset != null) params.set('offset', String(options.offset))
+  if (options.queueName != null) params.set('queue_name', options.queueName)
+  const qs = params.toString()
+  const res = await fetch(`${API_BASE}/queued-workflows${qs ? `?${qs}` : ''}`)
+  const raw = await handleResponse<{ workflows: QueuedWorkflowSummary[]; has_more: boolean }>(res)
+  return { workflows: raw.workflows, hasMore: raw.has_more }
 }

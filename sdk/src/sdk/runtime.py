@@ -91,6 +91,7 @@ class AgentService:
         self.runtime.start()
         registered_agent = get_registered_agent(name)
         resolved_queue_name = queue_name or self.default_queue_name
+        _ensure_queue_exists(resolved_queue_name)
         return await DBOS.enqueue_workflow_async(
             resolved_queue_name,
             registered_agent.workflow,
@@ -185,6 +186,10 @@ class WorkerService:
                     time.sleep(3600)
             except KeyboardInterrupt:
                 logger.info("agent worker shutting down")
+
+
+def _ensure_queue_exists(queue_name: str) -> Any:
+    return DBOS.register_queue(queue_name, on_conflict="never_update")
 
 
 def _dbos_config(

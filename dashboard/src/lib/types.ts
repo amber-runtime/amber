@@ -1,4 +1,4 @@
-export type WorkflowStatus = 'SUCCESS' | 'PENDING' | 'ERROR' | 'CANCELLED'
+export type WorkflowStatus = 'SUCCESS' | 'PENDING' | 'ERROR' | 'CANCELLED' | 'ENQUEUED'
 
 export interface Step {
   step_id: number | null
@@ -52,6 +52,19 @@ export interface AgentGroup {
   startedAtMs: number | null
   endedAtMs: number | null
   totalDurationMs: number | null
+}
+
+export interface QueuedWorkflowSummary {
+  workflow_id: string
+  name: string
+  status: WorkflowStatus
+  created_at: number | null
+  queue_name: string | null
+}
+
+export interface QueuedWorkflowListPage {
+  workflows: QueuedWorkflowSummary[]
+  hasMore: boolean
 }
 
 export type SelectedStepId = number | null
