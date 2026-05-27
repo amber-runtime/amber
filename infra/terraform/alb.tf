@@ -134,6 +134,23 @@ resource "aws_lb_listener_rule" "customer_app" {
   }
 }
 
+# /demo/*  → customer-app (demo frontend + agent API)
+resource "aws_lb_listener_rule" "customer_app_demo" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 210
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.customer_app.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/demo/*", "/demo"]
+    }
+  }
+}
+
 # --- ALB → Service Security Group Rules ---
 
 resource "aws_security_group_rule" "alb_to_dashboard_api" {

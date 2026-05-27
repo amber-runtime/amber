@@ -97,6 +97,26 @@ resource "aws_cloudfront_distribution" "main" {
     max_ttl = 0
   }
 
+  # /demo/* → ALB → customer-app (demo frontend + agent API)
+  ordered_cache_behavior {
+    path_pattern           = "/demo/*"
+    target_origin_id       = "alb"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD", "OPTIONS"]
+
+    forwarded_values {
+      query_string = true
+      headers      = ["Host", "Authorization", "Accept", "Content-Type"]
+
+      cookies { forward = "all" }
+    }
+
+    min_ttl = 0
+    default_ttl = 0
+    max_ttl = 0
+  }
+
   # /dashboard/* → ALB → dashboard-api
   ordered_cache_behavior {
     path_pattern           = "/dashboard/*"
