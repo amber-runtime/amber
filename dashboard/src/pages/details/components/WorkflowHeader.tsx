@@ -89,11 +89,6 @@ export function WorkflowHeader({ workflow, steps }: Props) {
   const llmCalls = countLlmCalls(steps)
   const toolCalls = countToolCalls(steps)
 
-  const shortId =
-    workflow.workflow_id.length > 20
-      ? `${workflow.workflow_id.slice(0, 8)}…${workflow.workflow_id.slice(-4)}`
-      : workflow.workflow_id
-
   const canResume = workflow.status === 'ERROR' || workflow.status === 'CANCELLED'
   const canCancel = workflow.status === 'PENDING'
 
@@ -140,7 +135,7 @@ export function WorkflowHeader({ workflow, steps }: Props) {
           {workflow.status}
         </span>
         <span className="flex items-center font-mono text-xs text-slate-400">
-          {shortId}
+          {workflow.workflow_id}
           <CopyButton text={workflow.workflow_id} label="Copy workflow ID" />
         </span>
 

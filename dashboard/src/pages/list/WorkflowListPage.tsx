@@ -6,6 +6,14 @@ import { useWorkflows } from '../../lib/workflowContext'
 import { humanizeWorkflowName, formatRelativeTime, formatDuration } from '../../lib/stepHelpers'
 import { PageHeader } from '../../shared/PageHeader'
 
+const STATUS_STYLES: Record<WorkflowStatus, { label: string; className: string }> = {
+  ENQUEUED:  { label: 'Enqueued', className: 'bg-blue-500/15 text-blue-300 border-blue-500/30' },
+  SUCCESS:   { label: 'Success', className: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' },
+  PENDING:   { label: 'Running', className: 'bg-amber-500/15 text-amber-300 border-amber-500/30' },
+  ERROR:     { label: 'Error', className: 'bg-red-500/15 text-red-400 border-red-500/30' },
+  CANCELLED: { label: 'Cancelled', className: 'bg-slate-700/50 text-slate-400 border-slate-600' },
+}
+
 type Filter = 'all' | 'completed' | 'running' | 'errored'
 
 const FILTER_STATUS: Record<Filter, WorkflowStatus | null> = {
@@ -44,14 +52,20 @@ function StatusIcon({ status }: { status: WorkflowStatus }) {
   return <span className="w-3.5 h-3.5 rounded-full bg-slate-600 shrink-0" />
 }
 
-function AttemptsPill({ count }: { count: number | null }) {
-  if (count == null || count <= 0) return null
-  const cls = count === 1
-    ? 'bg-slate-800 text-slate-400 border border-slate-700'
-    : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+function StatusBadge({ status }: { status: WorkflowStatus }) {
+  const { label, className } = STATUS_STYLES[status] ?? STATUS_STYLES.CANCELLED
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${cls}`}>
-      Attempts: {count}
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${className}`}>
+      {label}
+    </span>
+  )
+}
+
+function RetriedPill({ attempts }: { attempts: number | null }) {
+  if (attempts == null || attempts <= 1) return null
+  return (
+    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap bg-amber-500/15 text-amber-300 border border-amber-500/30">
+      Retried
     </span>
   )
 }
@@ -63,6 +77,10 @@ function workflowDuration(w: WorkflowSummary, now: number): string {
   const ms = (w.completed_at || now) - w.created_at
   if (ms <= 0) return '—'
   return formatDuration(ms)
+}
+
+function shortWorkflowId(id: string): string {
+  return id.length > 20 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id
 }
 
 export function WorkflowListPage() {
@@ -182,7 +200,10 @@ export function WorkflowListPage() {
                       Duration
                     </th>
                     <th className="pr-4 py-2.5 text-right text-xs font-medium text-slate-400 uppercase tracking-wide">
-                      Attempts
+                      Status
+                    </th>
+                    <th className="pr-4 py-2.5 text-right text-xs font-medium text-slate-400 uppercase tracking-wide">
+                      Retried
                     </th>
                   </tr>
                 </thead>
@@ -201,7 +222,7 @@ export function WorkflowListPage() {
                           {humanizeWorkflowName(w.name)}
                         </p>
                         <span className="text-xs font-mono text-slate-500">
-                          {w.workflow_id.slice(0, 8)}…{w.workflow_id.slice(-4)}
+                          {shortWorkflowId(w.workflow_id)}
                         </span>
                       </td>
                       <td className="pr-4 py-3.5 text-xs text-slate-300 whitespace-nowrap text-right">
@@ -211,7 +232,10 @@ export function WorkflowListPage() {
                         {workflowDuration(w, now)}
                       </td>
                       <td className="pr-4 py-3.5 text-right">
-                        <AttemptsPill count={w.attempts} />
+                        <StatusBadge status={w.status} />
+                      </td>
+                      <td className="pr-4 py-3.5 text-right">
+                        <RetriedPill attempts={w.attempts} />
                       </td>
                     </tr>
                   ))}

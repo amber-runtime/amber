@@ -26,16 +26,17 @@ function StatusBadge({ status }: { status: WorkflowStatus }) {
   )
 }
 
-function AttemptsPill({ count }: { count: number | null }) {
-  if (count == null || count <= 0) return null
-  const className = count === 1
-    ? 'bg-slate-800 text-slate-400 border-slate-700'
-    : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+function RetriedPill({ attempts }: { attempts: number | null }) {
+  if (attempts == null || attempts <= 1) return null
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${className}`}>
-      Attempts: {count}
+    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border bg-amber-500/15 text-amber-300 border-amber-500/30">
+      Retried
     </span>
   )
+}
+
+function shortWorkflowId(id: string): string {
+  return id.length > 20 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id
 }
 
 export function QueuedPage() {
@@ -173,7 +174,7 @@ export function QueuedPage() {
                       Status
                     </th>
                     <th className="pr-4 py-2.5 text-right text-xs font-medium text-slate-400 uppercase tracking-wide">
-                      Attempts
+                      Retried
                     </th>
                   </tr>
                 </thead>
@@ -189,7 +190,7 @@ export function QueuedPage() {
                           {humanizeWorkflowName(w.name)}
                         </p>
                         <span className="text-xs font-mono text-slate-500">
-                          {w.workflow_id}
+                          {shortWorkflowId(w.workflow_id)}
                         </span>
                       </td>
                       <td className="pr-4 py-3.5 text-xs text-slate-300 whitespace-nowrap text-right">
@@ -199,7 +200,7 @@ export function QueuedPage() {
                         <StatusBadge status={w.status} />
                       </td>
                       <td className="pr-4 py-3.5 text-right">
-                        <AttemptsPill count={w.attempts} />
+                        <RetriedPill attempts={w.attempts} />
                       </td>
                     </tr>
                   ))}
