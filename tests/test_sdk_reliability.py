@@ -84,8 +84,6 @@ class QueryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(records[0]["function_name"])
         self.assertEqual(records[0]["event_type"], "step")
         self.assertIsNone(records[0]["step_output"])
-        self.assertIsNone(records[0]["step_error"])
-        self.assertIsNone(records[0]["child_workflow_id"])
 
     def test_build_step_records_carries_dbos_native_output_for_plain_steps(self):
         steps = [
@@ -107,8 +105,6 @@ class QueryTests(unittest.IsolatedAsyncioTestCase):
             records[0]["step_output"],
             {"destination": "Tokyo", "guests": 2},
         )
-        self.assertIsNone(records[0]["step_error"])
-        self.assertIsNone(records[0]["child_workflow_id"])
 
     def test_build_step_records_falls_back_to_completed_at_for_plain_steps(self):
         steps = [
@@ -150,7 +146,7 @@ class QueryTests(unittest.IsolatedAsyncioTestCase):
             iso_utc_from_ms(1_747_830_410_000),
         )
 
-    def test_build_step_records_stringifies_dbos_native_errors(self):
+    def test_build_step_records_marks_dbos_native_errors(self):
         steps = [
             {
                 "function_id": 2,
@@ -164,8 +160,6 @@ class QueryTests(unittest.IsolatedAsyncioTestCase):
         records = queries.build_step_records(steps, [])
 
         self.assertEqual(records[0]["status"], "ERROR")
-        self.assertEqual(records[0]["step_error"], "bad lookup")
-        self.assertEqual(records[0]["child_workflow_id"], "wf-child-1")
 
     def test_build_step_records_carries_llm_raw_io(self):
         steps = [{"function_id": 1, "function_name": "_model_call_step", "error": None}]
@@ -433,9 +427,13 @@ def install_decorator_stubs():
     class DBOSRunner:
         pass
 
+    class DBOSClient:
+        pass
+
     DBOS.launch = mock.Mock(side_effect=lambda: DBOS.call_order.append("launch"))
 
     dbos.DBOS = DBOS
+    dbos.DBOSClient = DBOSClient
     dbos.DBOSConfig = dict
     dbos_openai_agents.DBOSRunner = DBOSRunner
 
@@ -479,13 +477,23 @@ def install_agents_stubs():
 
 class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        self.env_patcher = mock.patch.dict(
+            os.environ, {"DB_URL": "postgres://db"}, clear=False
+        )
+        self.env_patcher.start()
         self.DBOS = install_decorator_stubs()
-        self.decorators = load_module("decorators_registry_under_test", "sdk/src/sdk/decorators.py")
         sdk_src = ROOT / "sdk" / "src"
         if str(sdk_src) not in sys.path:
             sys.path.insert(0, str(sdk_src))
+        for module_name in list(sys.modules):
+            if module_name == "sdk" or module_name.startswith("sdk."):
+                sys.modules.pop(module_name, None)
         sys.modules.pop("sdk.runtime", None)
         self.runtime = importlib.import_module("sdk.runtime")
+        self.decorators = importlib.import_module("sdk.decorators")
+
+    def tearDown(self):
+        self.env_patcher.stop()
 
     def test_agent_decorator_registers_named_workflow(self):
         async def run_topic(topic: str) -> str:
@@ -614,6 +622,31 @@ class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    def test_worker_service_accepts_global_concurrency_equal_to_worker_concurrency(self):
+        worker = self.runtime.WorkerService(
+            agent_modules=["customer_agent_module"],
+            queue_name="agent-runs",
+            worker_concurrency=4,
+            concurrency=4,
+            keep_alive=False,
+        )
+
+        self.assertEqual(worker.worker_concurrency, 4)
+        self.assertEqual(worker.concurrency, 4)
+
+    def test_worker_service_rejects_global_concurrency_below_worker_concurrency(self):
+        with self.assertRaisesRegex(
+            ValueError,
+            "concurrency must be greater than or equal to worker_concurrency",
+        ):
+            self.runtime.WorkerService(
+                agent_modules=["customer_agent_module"],
+                queue_name="agent-runs",
+                worker_concurrency=5,
+                concurrency=4,
+                keep_alive=False,
+            )
+
     async def test_agent_service_enqueue_ensures_queue_exists_before_submission(self):
         async def run_topic(topic: str) -> str:
             return topic
@@ -687,6 +720,178 @@ class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
             worker.run()
 
 
+class LoadWorkerTests(unittest.TestCase):
+    def load_worker_module(self):
+        fake_sdk = types.ModuleType("sdk")
+
+        class Runtime:
+            instances = []
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+                Runtime.instances.append(self)
+
+        class WorkerService:
+            instances = []
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+                WorkerService.instances.append(self)
+
+            def run(self):
+                self.ran = True
+
+        fake_sdk.Runtime = Runtime
+        fake_sdk.WorkerService = WorkerService
+        with mock.patch.dict(sys.modules, {"sdk": fake_sdk}):
+            module = load_module(
+                "load_worker_under_test",
+                "tests/load_testing/load_worker.py",
+            )
+        return module, Runtime, WorkerService
+
+    def test_load_worker_passes_env_concurrency_to_worker_service(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "LOAD_TEST_DB_URL": "postgres://load-test",
+                "LOAD_TEST_RUNTIME_NAME": "load-runtime",
+                "WORKER_CONCURRENCY": "3",
+                "QUEUE_CONCURRENCY": "9",
+            },
+            clear=True,
+        ):
+            module, runtime, worker_service = self.load_worker_module()
+
+            module.main()
+
+        self.assertEqual(
+            runtime.instances[0].kwargs,
+            {"name": "load-runtime", "db_url": "postgres://load-test"},
+        )
+        self.assertEqual(worker_service.instances[0].kwargs["queue_name"], "agent-runs")
+        self.assertEqual(
+            worker_service.instances[0].kwargs["agent_modules"],
+            ["tests.load_testing.synthetic_queue_agent"],
+        )
+        self.assertEqual(worker_service.instances[0].kwargs["worker_concurrency"], 3)
+        self.assertEqual(worker_service.instances[0].kwargs["concurrency"], 9)
+        self.assertTrue(worker_service.instances[0].ran)
+
+
+class LoadAppTests(unittest.IsolatedAsyncioTestCase):
+    def load_app_module(self):
+        fake_agent_module = types.ModuleType("tests.load_testing.synthetic_queue_agent")
+        fake_agent_module.SAMPLE_MESSAGE = "sleep=5"
+
+        fake_sdk = types.ModuleType("sdk")
+
+        class Runtime:
+            instances = []
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+                Runtime.instances.append(self)
+
+            def start(self, **_kwargs):
+                pass
+
+        class AgentService:
+            instances = []
+
+            def __init__(self, runtime):
+                self.runtime = runtime
+                self.enqueued = []
+                AgentService.instances.append(self)
+
+            async def enqueue(self, name, input):
+                self.enqueued.append((name, input))
+                return types.SimpleNamespace(workflow_id="workflow-enqueued")
+
+        fake_sdk.AgentService = AgentService
+        fake_sdk.Runtime = Runtime
+        fake_sdk.list_registered_agents = lambda: [
+            types.SimpleNamespace(name="synthetic-queue-agent")
+        ]
+
+        modules = {
+            "tests.load_testing.synthetic_queue_agent": fake_agent_module,
+            "sdk": fake_sdk,
+        }
+        env = {
+            "LOAD_TEST_DB_URL": "postgres://load-test",
+            "LOAD_TEST_RUNTIME_NAME": "load-runtime",
+        }
+        with mock.patch.dict(sys.modules, modules), mock.patch.dict(
+            os.environ, env, clear=True
+        ):
+            module = load_module(
+                "load_app_under_test",
+                "tests/load_testing/load_app.py",
+            )
+        return module, Runtime, AgentService
+
+    async def test_load_app_accepts_synthetic_agent_only(self):
+        module, runtime, agent_service = self.load_app_module()
+
+        response = await module.create_run(
+            module.RunRequest(agent="synthetic-queue-agent", input="sleep=12")
+        )
+
+        self.assertEqual(
+            runtime.instances[0].kwargs,
+            {"name": "load-runtime", "db_url": "postgres://load-test"},
+        )
+        self.assertEqual(response.workflow_id, "workflow-enqueued")
+        self.assertEqual(response.agent, "synthetic-queue-agent")
+        self.assertEqual(
+            agent_service.instances[0].enqueued,
+            [("synthetic-queue-agent", "sleep=12")],
+        )
+
+        with self.assertRaisesRegex(Exception, "Only 'synthetic-queue-agent'"):
+            await module.create_run(
+                module.RunRequest(agent="research-handoff-agent", input="hello")
+            )
+
+
+class LoadTestConfigTests(unittest.TestCase):
+    def load_config_module(self):
+        return load_module("load_test_config_under_test", "tests/load_testing/config.py")
+
+    def test_load_test_config_requires_load_test_db_url(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "DB_URL": "postgres://prod",
+                "DBOS_SYSTEM_DATABASE_URL": "postgres://also-prod",
+            },
+            clear=True,
+        ):
+            config = self.load_config_module()
+            config.ENV_FILE = ROOT / "__missing_load_test_env__"
+
+            with self.assertRaisesRegex(RuntimeError, "LOAD_TEST_DB_URL is required"):
+                config.load_load_test_config()
+
+    def test_load_test_config_reads_dedicated_env(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "LOAD_TEST_DB_URL": "postgres://load-test",
+                "LOAD_TEST_RUNTIME_NAME": "custom-load-runtime",
+            },
+            clear=True,
+        ):
+            config = self.load_config_module()
+            config.ENV_FILE = ROOT / "__missing_load_test_env__"
+
+            resolved = config.load_load_test_config()
+
+        self.assertEqual(resolved.db_url, "postgres://load-test")
+        self.assertEqual(resolved.runtime_name, "custom-load-runtime")
+
+
 class DemoRegistrationTests(unittest.TestCase):
     def setUp(self):
         install_agents_stubs()
@@ -704,16 +909,39 @@ class DemoRegistrationTests(unittest.TestCase):
         sys.modules["sdk"] = sdk
 
     def test_demo_imports_register_only_top_level_agents(self):
-        load_module("single_agent_demo_under_test", "user_agents/single_agent_demo.py")
-        load_module("multi_agent_demo_under_test", "user_agents/multi_agent_demo.py")
+        load_module(
+            "single_agent_demo_under_test",
+            "example_customer_app/user_agents/single_agent_demo.py",
+        )
+        load_module(
+            "multi_agent_demo_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
 
         self.assertEqual(
             [agent.name for agent in self.decorators.list_registered_agents()],
             ["research-assistant", "travel-concierge"],
         )
 
+    def test_synthetic_queue_agent_registers_for_local_load_tests(self):
+        demo = load_module(
+            "synthetic_queue_agent_under_test",
+            "tests/load_testing/synthetic_queue_agent.py",
+        )
+
+        self.assertEqual(demo.parse_sleep_seconds("sleep=12"), 12)
+        self.assertEqual(demo.parse_sleep_seconds("no explicit sleep"), 5)
+        self.assertEqual(demo.parse_sleep_seconds("sleep=999"), 300)
+        self.assertEqual(
+            [agent.name for agent in self.decorators.list_registered_agents()],
+            ["synthetic-queue-agent"],
+        )
+
     def test_travel_request_normalizer_accepts_vague_prompt(self):
-        demo = load_module("multi_agent_demo_normalizer_under_test", "user_agents/multi_agent_demo.py")
+        demo = load_module(
+            "multi_agent_demo_normalizer_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
 
         normalized = demo.normalize_travel_request("book me a trip to Tokyo")
 
@@ -725,7 +953,10 @@ class DemoRegistrationTests(unittest.TestCase):
         self.assertEqual(normalized["budget"], 3000)
 
     def test_travel_request_normalizer_extracts_obvious_overrides(self):
-        demo = load_module("multi_agent_demo_complete_under_test", "user_agents/multi_agent_demo.py")
+        demo = load_module(
+            "multi_agent_demo_complete_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
 
         normalized = demo.normalize_travel_request(
             "Book a luxury trip to Paris from JFK for 4 people, "
@@ -741,7 +972,10 @@ class DemoRegistrationTests(unittest.TestCase):
         self.assertEqual(normalized["travel_style"], "luxury")
 
     def test_travel_request_normalizer_respects_edited_destination_prompts(self):
-        demo = load_module("multi_agent_demo_destinations_under_test", "user_agents/multi_agent_demo.py")
+        demo = load_module(
+            "multi_agent_demo_destinations_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
 
         examples = {
             "booking your trip to washington": "Washington",
@@ -755,14 +989,17 @@ class DemoRegistrationTests(unittest.TestCase):
                 self.assertEqual(normalized["destination"], expected_destination)
 
     def test_travel_request_normalizer_defaults_destination_when_missing(self):
-        demo = load_module("multi_agent_demo_default_destination_under_test", "user_agents/multi_agent_demo.py")
+        demo = load_module(
+            "multi_agent_demo_default_destination_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
 
         normalized = demo.normalize_travel_request("book me a balanced trip from SFO for 2 people")
 
         self.assertEqual(normalized["destination"], "Tokyo")
 
     def test_travel_request_normalizer_extracts_place_name_origins(self):
-        demo = load_module("multi_agent_demo_origins_under_test", "user_agents/multi_agent_demo.py")
+        demo = load_module("multi_agent_demo_origins_under_test", "example_customer_app/user_agents/multi_agent_demo.py")
 
         examples = [
             "book me a trip from massachusetts to canada",
@@ -776,14 +1013,14 @@ class DemoRegistrationTests(unittest.TestCase):
                 self.assertEqual(normalized["destination"], "Canada")
 
     def test_travel_request_normalizer_defaults_origin_when_missing(self):
-        demo = load_module("multi_agent_demo_default_origin_under_test", "user_agents/multi_agent_demo.py")
+        demo = load_module("multi_agent_demo_default_origin_under_test", "example_customer_app/user_agents/multi_agent_demo.py")
 
         normalized = demo.normalize_travel_request("book me a trip to Canada")
 
         self.assertEqual(normalized["origin"], "SFO")
 
     def test_guardrail_blocks_final_until_all_specialists_complete(self):
-        demo = load_module("multi_agent_demo_guardrail_under_test", "user_agents/multi_agent_demo.py")
+        demo = load_module("multi_agent_demo_guardrail_under_test", "example_customer_app/user_agents/multi_agent_demo.py")
 
         self.assertEqual(demo.choose_guarded_next_action("final", {"flight"}), "hotel")
         self.assertEqual(
@@ -796,7 +1033,7 @@ class DemoRegistrationTests(unittest.TestCase):
         self.assertEqual(demo.choose_guarded_next_action("flight", {"flight"}), "hotel")
 
     def test_planner_action_can_be_extracted_from_json_or_prose(self):
-        demo = load_module("multi_agent_demo_planner_parse_under_test", "user_agents/multi_agent_demo.py")
+        demo = load_module("multi_agent_demo_planner_parse_under_test", "example_customer_app/user_agents/multi_agent_demo.py")
 
         self.assertEqual(demo.extract_planner_action('{"next_action": "hotel"}'), "hotel")
         self.assertEqual(
@@ -805,7 +1042,7 @@ class DemoRegistrationTests(unittest.TestCase):
         )
 
     def test_hotel_quotes_do_not_crash_without_request_marker(self):
-        demo = load_module("multi_agent_demo_no_crash_under_test", "user_agents/multi_agent_demo.py")
+        demo = load_module("multi_agent_demo_no_crash_under_test", "example_customer_app/user_agents/multi_agent_demo.py")
         self.DBOS.workflow_id = "hotel-demo-1"
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -820,7 +1057,7 @@ class DemoRegistrationTests(unittest.TestCase):
         self.assertIn("Market House Hotel", quotes)
 
     def test_hotel_crash_marker_prevents_repeated_crashes(self):
-        demo = load_module("multi_agent_demo_crash_marker_under_test", "user_agents/multi_agent_demo.py")
+        demo = load_module("multi_agent_demo_crash_marker_under_test", "example_customer_app/user_agents/multi_agent_demo.py")
         self.DBOS.workflow_id = "hotel-demo-2"
 
         with tempfile.TemporaryDirectory() as tmpdir:

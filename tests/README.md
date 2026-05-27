@@ -1,2 +1,3 @@
 Running unittests
-python -m unittest tests/test_sdk_reliability.py
+uv run python -m unittest tests.test_dashboard_client
+uv run python -m unittest tests.test_sdk_reliability

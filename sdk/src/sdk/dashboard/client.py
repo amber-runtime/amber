@@ -7,7 +7,12 @@ from dbos import DBOSClient
 from .queries import build_step_records, fetch_agent_events_for_dashboard
 
 
-def _wf_to_dict(workflow, *, include_output: bool = False) -> dict:
+def _wf_to_dict(
+    workflow,
+    *,
+    include_output: bool = False,
+    include_queue: bool = False,
+) -> dict:
     record = {
         "workflow_id": workflow.workflow_id,
         "name": workflow.name,
@@ -19,6 +24,8 @@ def _wf_to_dict(workflow, *, include_output: bool = False) -> dict:
     if include_output:
         output = getattr(workflow, "output", None)
         record["output"] = None if output is None else str(output)
+    if include_queue:
+        record["queue_name"] = getattr(workflow, "queue_name", None)
     return record
 
 
@@ -77,10 +84,32 @@ class DashboardClient:
         workflows = await self._client.list_workflows_async(**kwargs)
         result = []
         for workflow in workflows:
-            d = _wf_to_dict(workflow)
-            d["queue_name"] = getattr(workflow, "queue_name", None)
+            d = _wf_to_dict(workflow, include_queue=True)
             result.append(d)
         return result
+
+    async def list_queue_workflows(
+        self,
+        *,
+        queue_name: Optional[str] = None,
+        start_time: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+        sort_desc: bool = False,
+    ) -> list[dict]:
+        kwargs: dict = {
+            "limit": limit,
+            "offset": offset,
+            "sort_desc": sort_desc,
+            "load_input": False,
+            "load_output": False,
+        }
+        if queue_name:
+            kwargs["queue_name"] = queue_name
+        if start_time:
+            kwargs["start_time"] = start_time
+        workflows = await self._client.list_workflows_async(**kwargs)
+        return [_wf_to_dict(workflow, include_queue=True) for workflow in workflows]
 
     async def get_workflow(self, workflow_id: str) -> Optional[dict]:
         workflows = await self._client.list_workflows_async(
