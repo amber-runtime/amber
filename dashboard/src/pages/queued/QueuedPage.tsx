@@ -6,9 +6,19 @@ import type { QueuedWorkflowSummary } from '../../lib/types'
 import { humanizeWorkflowName, formatRelativeTime, shortWorkflowId } from '../../lib/stepHelpers'
 import { PageHeader } from '../../shared/PageHeader'
 import { StatusBadge, RetriedPill } from '../../shared/workflowStatus'
+import { SearchInput } from '../../shared/SearchInput'
 
 const POLL_DELAY_MS = 5000
 const PAGE_SIZE = 50
+
+function matchesSearch(
+  w: { name: string; workflow_id: string },
+  query: string,
+): boolean {
+  const q = query.trim().toLowerCase()
+  if (q === '') return true
+  return w.name.toLowerCase().includes(q) || w.workflow_id.toLowerCase().includes(q)
+}
 
 export function QueuedPage() {
   const navigate = useNavigate()
@@ -17,6 +27,7 @@ export function QueuedPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [hasMore, setHasMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
   const loadedCountRef = useRef(PAGE_SIZE)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -87,6 +98,8 @@ export function QueuedPage() {
     }
   }, [fetchPage])
 
+  const filtered = workflows.filter((w) => matchesSearch(w, searchQuery))
+
   return (
     <div className="min-h-screen bg-slate-950">
       <PageHeader
@@ -102,6 +115,12 @@ export function QueuedPage() {
       />
 
       <div className="max-w-5xl mx-auto px-6 py-5">
+        <SearchInput
+          value={searchQuery}
+          onChange={setSearchQuery}
+          placeholder="Search by name or ID..."
+        />
+
         {loading && (
           <div className="flex items-center justify-center py-20 gap-3">
             <div className="w-5 h-5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
@@ -127,9 +146,11 @@ export function QueuedPage() {
 
         {!loading && !error && (
           <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
-            {workflows.length === 0 ? (
+            {filtered.length === 0 ? (
               <div className="px-4 py-12 text-center text-sm text-slate-500">
-                No queued workflows.
+                {searchQuery.trim() !== ''
+                  ? 'No queued workflows match your search.'
+                  : 'No queued workflows.'}
               </div>
             ) : (
               <table className="w-full border-collapse">
@@ -150,7 +171,7 @@ export function QueuedPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {workflows.map((w) => (
+                  {filtered.map((w) => (
                     <tr
                       key={w.workflow_id}
                       onClick={() => navigate(`/workflows/${w.workflow_id}`)}

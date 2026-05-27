@@ -11,6 +11,7 @@ import {
 } from '../../lib/stepHelpers'
 import { PageHeader } from '../../shared/PageHeader'
 import { StatusBadge, RetriedPill } from '../../shared/workflowStatus'
+import { SearchInput } from '../../shared/SearchInput'
 
 type Filter = 'all' | 'completed' | 'running' | 'errored'
 
@@ -26,6 +27,36 @@ const EMPTY_MESSAGES: Record<Filter, string> = {
   completed: 'No completed workflows.',
   running: 'No running workflows.',
   errored: 'No errored workflows.',
+}
+
+type DateFilter = 'all' | '24h' | '7d' | '30d'
+
+const DATE_LABELS: Record<DateFilter, string> = {
+  all: 'All time',
+  '24h': 'Last 24h',
+  '7d': 'Last 7d',
+  '30d': 'Last 30d',
+}
+
+const DATE_FILTER_MS: Record<DateFilter, number | null> = {
+  all: null,
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000,
+}
+
+function matchesSearch(
+  w: { name: string; workflow_id: string },
+  query: string,
+): boolean {
+  const q = query.trim().toLowerCase()
+  if (q === '') return true
+  return w.name.toLowerCase().includes(q) || w.workflow_id.toLowerCase().includes(q)
+}
+
+function matchesDate(createdAt: number, dateFilter: DateFilter): boolean {
+  const window = DATE_FILTER_MS[dateFilter]
+  return window === null || Date.now() - createdAt <= window
 }
 
 function StatusIcon({ status }: { status: WorkflowStatus }) {
@@ -63,6 +94,8 @@ export function WorkflowListPage() {
   const navigate = useNavigate()
   const { workflows, loading, loadingMore, hasMore, error, refresh, loadMore } = useWorkflows()
   const [filter, setFilter] = useState<Filter>('all')
+  const [dateFilter, setDateFilter] = useState<DateFilter>('all')
+  const [searchQuery, setSearchQuery] = useState('')
   const [now, setNow] = useState(Date.now())
 
   // Tick every second when any workflow is PENDING so durations update live
@@ -73,11 +106,17 @@ export function WorkflowListPage() {
     return () => clearInterval(timer)
   }, [workflows])
 
+  // Apply search + date first so chip counts reflect what's actually
+  // selectable; the status chip itself is applied on top of this set.
+  const preStatusFiltered = workflows.filter(
+    (w) => matchesDate(w.created_at, dateFilter) && matchesSearch(w, searchQuery),
+  )
+
   const counts = {
-    all: workflows.length,
-    completed: workflows.filter((w) => w.status === 'SUCCESS').length,
-    running: workflows.filter((w) => w.status === 'PENDING').length,
-    errored: workflows.filter((w) => w.status === 'ERROR').length,
+    all: preStatusFiltered.length,
+    completed: preStatusFiltered.filter((w) => w.status === 'SUCCESS').length,
+    running: preStatusFiltered.filter((w) => w.status === 'PENDING').length,
+    errored: preStatusFiltered.filter((w) => w.status === 'ERROR').length,
   }
 
   const FILTER_LABELS: Record<Filter, string> = {
@@ -87,7 +126,7 @@ export function WorkflowListPage() {
     errored: `Errored (${counts.errored})`,
   }
 
-  const filtered = workflows.filter((w) => {
+  const filtered = preStatusFiltered.filter((w) => {
     const target = FILTER_STATUS[filter]
     return target === null || w.status === target
   })
@@ -107,7 +146,13 @@ export function WorkflowListPage() {
       />
 
       <div className="max-w-5xl mx-auto px-6 py-5">
-        {/* Filter chips */}
+        <SearchInput
+          value={searchQuery}
+          onChange={setSearchQuery}
+          placeholder="Search by name or ID..."
+        />
+
+        {/* Status filter chips */}
         <div className="flex items-center gap-2 mb-4 flex-wrap">
           {(Object.keys(FILTER_LABELS) as Filter[]).map((f) => (
             <button
@@ -120,6 +165,23 @@ export function WorkflowListPage() {
               }`}
             >
               {FILTER_LABELS[f]}
+            </button>
+          ))}
+        </div>
+
+        {/* Date filter chips */}
+        <div className="flex items-center gap-2 mb-4 flex-wrap">
+          {(Object.keys(DATE_LABELS) as DateFilter[]).map((d) => (
+            <button
+              key={d}
+              onClick={() => setDateFilter(d)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                dateFilter === d
+                  ? 'bg-amber-500 text-slate-950 font-medium'
+                  : 'bg-slate-900 text-slate-300 border border-slate-800 hover:bg-slate-800'
+              }`}
+            >
+              {DATE_LABELS[d]}
             </button>
           ))}
         </div>
@@ -154,12 +216,19 @@ export function WorkflowListPage() {
           <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
             {filtered.length === 0 ? (
               <div className="px-4 py-12 text-center text-sm text-slate-500">
-                <p>{EMPTY_MESSAGES[filter]}</p>
-                {hasMore && filter !== 'all' && (
-                  <p className="mt-1 text-xs text-slate-600">
-                    Older workflows haven&rsquo;t been loaded — try Load more below.
-                  </p>
-                )}
+                <p>
+                  {searchQuery.trim() !== '' || dateFilter !== 'all'
+                    ? 'No workflows match your filters.'
+                    : EMPTY_MESSAGES[filter]}
+                </p>
+                {hasMore &&
+                  filter !== 'all' &&
+                  searchQuery.trim() === '' &&
+                  dateFilter === 'all' && (
+                    <p className="mt-1 text-xs text-slate-600">
+                      Older workflows haven&rsquo;t been loaded — try Load more below.
+                    </p>
+                  )}
               </div>
             ) : (
               <table className="w-full border-collapse">
