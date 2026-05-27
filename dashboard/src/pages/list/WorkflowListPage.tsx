@@ -3,8 +3,14 @@ import { useNavigate } from 'react-router-dom'
 import { RefreshCw, CheckCircle2, XCircle, AlertCircle, Loader2 } from 'lucide-react'
 import type { WorkflowSummary, WorkflowStatus } from '../../lib/types'
 import { useWorkflows } from '../../lib/workflowContext'
-import { humanizeWorkflowName, formatRelativeTime, formatDuration } from '../../lib/stepHelpers'
+import {
+  humanizeWorkflowName,
+  formatRelativeTime,
+  formatDuration,
+  shortWorkflowId,
+} from '../../lib/stepHelpers'
 import { PageHeader } from '../../shared/PageHeader'
+import { StatusBadge, RetriedPill } from '../../shared/workflowStatus'
 
 type Filter = 'all' | 'completed' | 'running' | 'errored'
 
@@ -35,17 +41,13 @@ function StatusIcon({ status }: { status: WorkflowStatus }) {
   if (status === 'ERROR')
     return <XCircle size={15} className="text-red-400 shrink-0" />
   if (status === 'ENQUEUED')
-    return <span className="w-3.5 h-3.5 rounded-full bg-blue-500 shrink-0" />
+    return (
+      <span className="relative flex h-3 w-3 shrink-0 mt-0.5">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+        <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500" />
+      </span>
+    )
   return <span className="w-3.5 h-3.5 rounded-full bg-slate-600 shrink-0" />
-}
-
-function RecoveryPill({ count }: { count: number }) {
-  if (count <= 0) return null
-  return (
-    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30 whitespace-nowrap">
-      Recovered {count}×
-    </span>
-  )
 }
 
 function workflowDuration(w: WorkflowSummary, now: number): string {
@@ -81,7 +83,7 @@ export function WorkflowListPage() {
   const FILTER_LABELS: Record<Filter, string> = {
     all: `All (${counts.all})`,
     completed: `Completed (${counts.completed})`,
-    running: `Running (${counts.running})`,
+    running: `Pending (${counts.running})`,
     errored: `Errored (${counts.errored})`,
   }
 
@@ -174,7 +176,10 @@ export function WorkflowListPage() {
                       Duration
                     </th>
                     <th className="pr-4 py-2.5 text-right text-xs font-medium text-slate-400 uppercase tracking-wide">
-                      Recovery
+                      Status
+                    </th>
+                    <th className="pr-4 py-2.5 text-right text-xs font-medium text-slate-400 uppercase tracking-wide">
+                      Retried
                     </th>
                   </tr>
                 </thead>
@@ -193,7 +198,7 @@ export function WorkflowListPage() {
                           {humanizeWorkflowName(w.name)}
                         </p>
                         <span className="text-xs font-mono text-slate-500">
-                          {w.workflow_id.slice(0, 8)}…{w.workflow_id.slice(-4)}
+                          {shortWorkflowId(w.workflow_id)}
                         </span>
                       </td>
                       <td className="pr-4 py-3.5 text-xs text-slate-300 whitespace-nowrap text-right">
@@ -203,7 +208,10 @@ export function WorkflowListPage() {
                         {workflowDuration(w, now)}
                       </td>
                       <td className="pr-4 py-3.5 text-right">
-                        <RecoveryPill count={w.recoveries} />
+                        <StatusBadge status={w.status} />
+                      </td>
+                      <td className="pr-4 py-3.5 text-right">
+                        <RetriedPill attempts={w.attempts} />
                       </td>
                     </tr>
                   ))}

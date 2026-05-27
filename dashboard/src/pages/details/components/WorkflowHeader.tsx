@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { RotateCcw, Square, Loader2 } from 'lucide-react'
-import type { WorkflowInfo, WorkflowStatus, Step } from '../../../lib/types'
+import type { WorkflowInfo, Step } from '../../../lib/types'
 import {
   humanizeWorkflowName,
   formatTimestamp,
@@ -16,19 +16,13 @@ import {
 } from '../../../lib/stepHelpers'
 import { resumeWorkflow, cancelWorkflow } from '../../../lib/api'
 import { showToast } from '../../../shared/Toast'
+import { StatusBadge } from '../../../shared/workflowStatus'
 import { CopyButton } from './right/CopyButton'
 
 interface Props {
   workflow: WorkflowInfo
   steps: Step[]
   onActionSuccess?: () => void
-}
-
-const STATUS_STYLES: Record<WorkflowStatus, string> = {
-  SUCCESS: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30',
-  PENDING: 'bg-amber-500/15 text-amber-300 border border-amber-500/30',
-  ERROR: 'bg-red-500/15 text-red-300 border border-red-500/30',
-  CANCELLED: 'bg-slate-800 text-slate-400 border border-slate-700',
 }
 
 function StatItem({ label, value }: { label: string; value: string }) {
@@ -158,15 +152,10 @@ export function WorkflowHeader({ workflow, steps, onActionSuccess }: Props) {
 
   const tokensIn = sumTokensIn(steps)
   const tokensOut = sumTokensOut(steps)
-  const recoveries = workflow.recoveries
+  const attempts = workflow.attempts
   const cost = estimateCost(steps)
   const llmCalls = countLlmCalls(steps)
   const toolCalls = countToolCalls(steps)
-
-  const shortId =
-    workflow.workflow_id.length > 20
-      ? `${workflow.workflow_id.slice(0, 8)}…${workflow.workflow_id.slice(-4)}`
-      : workflow.workflow_id
 
   const canResume = workflow.status === 'ERROR' || workflow.status === 'CANCELLED'
   const canCancel = workflow.status === 'PENDING'
@@ -210,13 +199,9 @@ export function WorkflowHeader({ workflow, steps, onActionSuccess }: Props) {
         <h1 className="text-xl font-semibold text-slate-50 tracking-tight">
           {humanizeWorkflowName(workflow.name)}
         </h1>
-        <span
-          className={`px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide ${STATUS_STYLES[workflow.status]}`}
-        >
-          {workflow.status}
-        </span>
+        <StatusBadge status={workflow.status} />
         <span className="flex items-center font-mono text-xs text-slate-400">
-          {shortId}
+          {workflow.workflow_id}
           <CopyButton text={workflow.workflow_id} label="Copy workflow ID" />
         </span>
 
@@ -250,9 +235,13 @@ export function WorkflowHeader({ workflow, steps, onActionSuccess }: Props) {
           <StatItem label="Duration" value={formatDuration(totalDuration)} />
         )}
 
-        {recoveries > 0 && (
-          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30">
-            Recovered {recoveries}×
+        {attempts != null && attempts > 0 && (
+          <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${
+            attempts === 1
+              ? 'bg-slate-800 text-slate-400 border-slate-700'
+              : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+          }`}>
+            Attempts: {attempts}
           </span>
         )}
 

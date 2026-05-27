@@ -12,6 +12,7 @@ import {
   formatDuration,
   getStepKind,
   humanizeStepName,
+  stepCompletedAtMs,
   stepDurationMs,
 } from '../../../lib/stepHelpers'
 
@@ -36,7 +37,7 @@ function StepIcon({ step }: { step: Step }) {
 function StatusDot({ step }: { step: Step }) {
   if (step.status === 'ERROR')
     return <XCircle size={13} className="text-red-400 shrink-0" />
-  if (step.completed_at_epoch_ms == null) {
+  if (stepCompletedAtMs(step) == null) {
     return (
       <span className="relative inline-flex h-3 w-3 shrink-0">
         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
@@ -49,7 +50,7 @@ function StatusDot({ step }: { step: Step }) {
 
 function barColorClass(step: Step): string {
   if (step.status === 'ERROR') return 'bg-red-500/80'
-  if (step.completed_at_epoch_ms == null) return 'bg-amber-500/70'
+  if (stepCompletedAtMs(step) == null) return 'bg-amber-500/70'
   return 'bg-emerald-500/70'
 }
 
@@ -88,7 +89,7 @@ export function StepRow({
   const stepId = step.step_id
   const kind = getStepKind(step)
   const hasError = step.status === 'ERROR'
-  const inProgress = step.completed_at_epoch_ms == null
+  const inProgress = stepCompletedAtMs(step) == null
   const dur = stepDurationMs(step)
 
   const name = step.event_type === 'tool_call'
@@ -131,7 +132,7 @@ export function StepRow({
 
       {/* Right: duration */}
       <span className="text-[11px] font-mono text-slate-500 tabular-nums text-right shrink-0">
-        {inProgress ? 'running…' : dur != null ? formatDuration(dur) : '—'}
+        {kind === 'sleep' && dur != null ? formatDuration(dur) : inProgress ? 'running…' : dur != null ? formatDuration(dur) : '—'}
       </span>
     </button>
   )

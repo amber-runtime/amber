@@ -2,29 +2,13 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { RefreshCw, AlertCircle, Loader2 } from 'lucide-react'
 import { fetchQueuedWorkflows } from '../../lib/api'
-import type { QueuedWorkflowSummary, WorkflowStatus } from '../../lib/types'
-import { humanizeWorkflowName, formatRelativeTime } from '../../lib/stepHelpers'
+import type { QueuedWorkflowSummary } from '../../lib/types'
+import { humanizeWorkflowName, formatRelativeTime, shortWorkflowId } from '../../lib/stepHelpers'
 import { PageHeader } from '../../shared/PageHeader'
+import { StatusBadge, RetriedPill } from '../../shared/workflowStatus'
 
 const POLL_DELAY_MS = 5000
 const PAGE_SIZE = 50
-
-const STATUS_STYLES: Record<WorkflowStatus, { label: string; className: string }> = {
-  ENQUEUED:  { label: 'Enqueued',  className: 'bg-blue-500/15 text-blue-300 border-blue-500/30' },
-  SUCCESS:   { label: 'Success',   className: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' },
-  PENDING:   { label: 'Running',   className: 'bg-amber-500/15 text-amber-300 border-amber-500/30' },
-  ERROR:     { label: 'Error',     className: 'bg-red-500/15 text-red-400 border-red-500/30' },
-  CANCELLED: { label: 'Cancelled', className: 'bg-slate-700/50 text-slate-400 border-slate-600' },
-}
-
-function StatusBadge({ status }: { status: WorkflowStatus }) {
-  const { label, className } = STATUS_STYLES[status] ?? STATUS_STYLES.CANCELLED
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${className}`}>
-      {label}
-    </span>
-  )
-}
 
 export function QueuedPage() {
   const navigate = useNavigate()
@@ -160,6 +144,9 @@ export function QueuedPage() {
                     <th className="pr-4 py-2.5 text-right text-xs font-medium text-slate-400 uppercase tracking-wide">
                       Status
                     </th>
+                    <th className="pr-4 py-2.5 text-right text-xs font-medium text-slate-400 uppercase tracking-wide">
+                      Retried
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -174,7 +161,7 @@ export function QueuedPage() {
                           {humanizeWorkflowName(w.name)}
                         </p>
                         <span className="text-xs font-mono text-slate-500">
-                          {w.workflow_id}
+                          {shortWorkflowId(w.workflow_id)}
                         </span>
                       </td>
                       <td className="pr-4 py-3.5 text-xs text-slate-300 whitespace-nowrap text-right">
@@ -182,6 +169,9 @@ export function QueuedPage() {
                       </td>
                       <td className="pr-4 py-3.5 text-right">
                         <StatusBadge status={w.status} />
+                      </td>
+                      <td className="pr-4 py-3.5 text-right">
+                        <RetriedPill attempts={w.attempts} />
                       </td>
                     </tr>
                   ))}

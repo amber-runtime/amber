@@ -8,6 +8,9 @@ export interface Step {
   duration_ms: number | null
   started_at_epoch_ms: number | null
   completed_at_epoch_ms: number | null
+  display_started_at_epoch_ms: number | null
+  display_completed_at_epoch_ms: number | null
+  display_duration_ms: number | null
   step_output: unknown | null
   agent_name: string | null
   llm_model: string | null
@@ -27,6 +30,7 @@ export interface WorkflowInfo {
   created_at: number
   updated_at: number
   recovery_attempts: number | null   // raw DBOS counter; 1 = first run, no recovery
+  attempts: number | null
   recoveries: number                 // derived: max(0, recovery_attempts - 1)
   output: string | null
 }
@@ -43,6 +47,7 @@ export interface WorkflowSummary {
   created_at: number
   completed_at: number
   recovery_attempts: number | null   // raw DBOS counter; 1 = first run, no recovery
+  attempts: number | null
   recoveries: number                 // derived: max(0, recovery_attempts - 1)
 }
 
@@ -60,6 +65,8 @@ export interface QueuedWorkflowSummary {
   status: WorkflowStatus
   created_at: number | null
   queue_name: string | null
+  recovery_attempts: number | null
+  attempts: number | null
 }
 
 export interface QueuedWorkflowListPage {
