@@ -81,6 +81,18 @@ class AgentService:
         registered_agent = get_registered_agent(name)
         return await DBOS.start_workflow_async(registered_agent.workflow, input)
 
+    async def start(
+        self,
+        name: str,
+        input: str,
+        *,
+        queue_name: str | None = None,
+    ):
+        registered_agent = get_registered_agent(name)
+        if registered_agent.queued:
+            return await self.enqueue(name, input, queue_name=queue_name)
+        return await self.run(name, input)
+
     async def enqueue(
         self,
         name: str,

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
+import re
 from typing import Any
 
-from agents import Agent, function_tool, handoff
+from agents import Agent, function_tool
 
 from sdk import register_agent, agent_runner, logger, step
 
@@ -13,13 +15,19 @@ SAMPLE_MESSAGE = (
 )
 HANDOFF_NOTE = (
     "DBOS durably stores workflow and step execution. The dashboard enriches that with "
-    "agent events from the SDK. Handoff events are expected on successful queued runs."
+    "agent events from the SDK. Planner and step events are expected on successful "
+    "queued runs."
 )
+REQUIRED_RESEARCH_PHASES = ("public_sources", "counterarguments", "evidence_brief")
+MAX_RESEARCH_DECISIONS = 5
 
 
-@function_tool
+def _json(data: object) -> str:
+    return json.dumps(data, indent=2, sort_keys=True)
+
+
 @step()
-def search_public_sources(topic: str) -> dict[str, Any]:
+def _search_public_sources_step(topic: str) -> dict[str, Any]:
     logger.info("Collecting public source pack for topic: %s", topic)
     return {
         "topic": topic,
@@ -48,8 +56,12 @@ def search_public_sources(topic: str) -> dict[str, Any]:
 
 
 @function_tool
+def search_public_sources(topic: str) -> dict[str, Any]:
+    return _search_public_sources_step(topic)
+
+
 @step()
-def gather_counterarguments(topic: str) -> dict[str, Any]:
+def _gather_counterarguments_step(topic: str) -> dict[str, Any]:
     logger.info("Collecting counterarguments for topic: %s", topic)
     return {
         "topic": topic,
@@ -66,8 +78,12 @@ def gather_counterarguments(topic: str) -> dict[str, Any]:
 
 
 @function_tool
+def gather_counterarguments(topic: str) -> dict[str, Any]:
+    return _gather_counterarguments_step(topic)
+
+
 @step()
-def assemble_evidence_brief(public_pack: str, counterarguments: str) -> dict[str, Any]:
+def _assemble_evidence_brief_step(public_pack: str, counterarguments: str) -> dict[str, Any]:
     logger.info("Assembling evidence brief from upstream specialist outputs")
     return {
         "evidence_summary": [
@@ -86,58 +102,197 @@ def assemble_evidence_brief(public_pack: str, counterarguments: str) -> dict[str
     }
 
 
-source_collector = Agent(
-    name="source_collector",
+@function_tool
+def assemble_evidence_brief(public_pack: str, counterarguments: str) -> dict[str, Any]:
+    return _assemble_evidence_brief_step(public_pack, counterarguments)
+
+
+@function_tool
+@step()
+def record_research_decision(next_action: str, rationale: str) -> str:
+    """Record the coordinator's next research phase choice."""
+    return _json({"next_action": next_action, "rationale": rationale})
+
+
+def _parse_json_object(value: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        pass
+
+    match = re.search(r"\{.*\}", value, flags=re.DOTALL)
+    if not match:
+        return {}
+
+    try:
+        parsed = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def extract_research_action(planner_output: str) -> str:
+    decision = _parse_json_object(planner_output)
+    action = str(decision.get("next_action", "")).strip()
+    if action:
+        return action
+
+    match = re.search(
+        r"\b(public sources|public_sources|sources|source collection|"
+        r"counterarguments|counter arguments|risks|evidence brief|"
+        r"evidence_brief|brief|final|finish|done)\b",
+        planner_output,
+        re.IGNORECASE,
+    )
+    return match.group(1) if match else ""
+
+
+def _first_missing_research_phase(completed: set[str]) -> str:
+    for phase in REQUIRED_RESEARCH_PHASES:
+        if phase not in completed:
+            return phase
+    return "final"
+
+
+def choose_guarded_research_action(raw_action: str, completed: set[str]) -> str:
+    action = raw_action.strip().lower().replace("-", "_")
+    action = re.sub(r"\s+", "_", action)
+    aliases = {
+        "public": "public_sources",
+        "sources": "public_sources",
+        "source": "public_sources",
+        "source_collection": "public_sources",
+        "public_source": "public_sources",
+        "public_sources": "public_sources",
+        "counterargument": "counterarguments",
+        "counterarguments": "counterarguments",
+        "counter_arguments": "counterarguments",
+        "risks": "counterarguments",
+        "risk": "counterarguments",
+        "brief": "evidence_brief",
+        "evidence": "evidence_brief",
+        "evidence_brief": "evidence_brief",
+        "done": "final",
+        "finish": "final",
+    }
+    action = aliases.get(action, action)
+
+    if action == "final":
+        return (
+            "final"
+            if len(completed) == len(REQUIRED_RESEARCH_PHASES)
+            else _first_missing_research_phase(completed)
+        )
+    if action not in REQUIRED_RESEARCH_PHASES:
+        return _first_missing_research_phase(completed)
+    if action in completed:
+        return _first_missing_research_phase(completed)
+    has_inputs_for_brief = {"public_sources", "counterarguments"}.issubset(completed)
+    if action == "evidence_brief" and not has_inputs_for_brief:
+        return _first_missing_research_phase(completed)
+    return action
+
+
+research_planner = Agent(
+    name="research_planner",
     instructions=(
-        "You are the source collection specialist for long-running deep research. "
-        "Gather grounded evidence using the available tools, organize it for downstream "
-        "agents, and clearly separate observed evidence from open questions."
+        "You are the research workflow planner. Choose exactly one next action from "
+        "public_sources, counterarguments, evidence_brief, or final. Use "
+        "record_research_decision exactly once. Prefer the most useful missing phase. "
+        "Do not choose evidence_brief until public_sources and counterarguments are "
+        "complete. Do not choose final until all phases are complete."
     ),
-    tools=[search_public_sources, gather_counterarguments],
+    tools=[record_research_decision],
 )
 
 synthesis_writer = Agent(
     name="synthesis_writer",
     instructions=(
         "You are the synthesis specialist. Build a crisp research memo that cites the "
-        "evidence provided by prior agents, highlights disagreements, and ends with a "
+        "completed evidence package, highlights disagreements, and ends with a "
         "decision-ready recommendation plus unresolved risks."
     ),
-    tools=[assemble_evidence_brief],
-)
-
-research_coordinator = Agent(
-    name="research_coordinator",
-    instructions=(
-        "You orchestrate durable deep research across specialist agents. First hand off "
-        "to the source collector to gather evidence and counterarguments. Then hand off "
-        "to the synthesis writer to produce the final memo. Do not answer directly until "
-        "the specialist chain has completed."
-    ),
-    handoffs=[
-        handoff(
-            source_collector,
-            tool_name_override="delegate_source_collection",
-            tool_description_override=(
-                "Hand off to the source collection specialist for evidence gathering."
-            ),
-        ),
-        handoff(
-            synthesis_writer,
-            tool_name_override="delegate_synthesis",
-            tool_description_override=(
-                "Hand off to the synthesis specialist for memo writing."
-            ),
-        ),
-    ],
 )
 
 
-@register_agent(name="research-handoff-agent")
-async def run_agent(message: str) -> str:
+def _research_phase_prompt(
+    topic: str,
+    completed: set[str],
+    findings: dict[str, Any],
+) -> str:
+    return (
+        "Choose the next phase for this queued research workflow.\n\n"
+        f"Required phases: {', '.join(REQUIRED_RESEARCH_PHASES)}\n"
+        f"Completed phases: {', '.join(sorted(completed)) or 'none'}\n"
+        f"Research request: {topic}\n"
+        f"Findings so far: {_json(findings)}\n\n"
+        "Return the recorded research decision."
+    )
+
+
+async def _plan_next_research_phase(
+    topic: str,
+    completed: set[str],
+    findings: dict[str, Any],
+) -> str:
     result = await agent_runner(
-        starting_agent=research_coordinator,
-        input=message,
+        starting_agent=research_planner,
+        input=_research_phase_prompt(topic, completed, findings),
+    )
+    return choose_guarded_research_action(
+        extract_research_action(str(result.final_output)),
+        completed,
+    )
+
+
+def _run_research_phase(
+    action: str,
+    topic: str,
+    findings: dict[str, Any],
+) -> Any:
+    if action == "public_sources":
+        return _search_public_sources_step(topic)
+    if action == "counterarguments":
+        return _gather_counterarguments_step(topic)
+    if action == "evidence_brief":
+        return _assemble_evidence_brief_step(
+            _json(findings["public_sources"]),
+            _json(findings["counterarguments"]),
+        )
+    raise ValueError(f"Unknown research phase: {action}")
+
+
+@register_agent(name="research-handoff-agent", queued=True)
+async def run_agent(message: str) -> str:
+    completed: set[str] = set()
+    findings: dict[str, Any] = {}
+
+    for _ in range(MAX_RESEARCH_DECISIONS):
+        next_action = await _plan_next_research_phase(message, completed, findings)
+        if next_action == "final":
+            break
+
+        logger.info("research-handoff-agent selected phase: %s", next_action)
+        findings[next_action] = _run_research_phase(next_action, message, findings)
+        completed.add(next_action)
+
+        if len(completed) == len(REQUIRED_RESEARCH_PHASES):
+            break
+
+    missing = [phase for phase in REQUIRED_RESEARCH_PHASES if phase not in completed]
+    for phase in missing:
+        logger.info("research-handoff-agent guardrail selected missing phase: %s", phase)
+        findings[phase] = _run_research_phase(phase, message, findings)
+        completed.add(phase)
+
+    result = await agent_runner(
+        starting_agent=synthesis_writer,
+        input=(
+            "Write the final research memo from this completed queued research "
+            f"workflow.\n\nOriginal request:\n{message}\n\n"
+            f"Completed findings:\n{_json(findings)}"
+        ),
     )
     final_output = str(result.final_output)
     logger.info("research-handoff-agent final output:\n%s", final_output)

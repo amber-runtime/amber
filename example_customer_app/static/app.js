@@ -12,6 +12,8 @@ const selectedCategory = document.querySelector("#selected-category");
 const selectedDescription = document.querySelector("#selected-description");
 const taskInput = document.querySelector("#task-input");
 const taskForm = document.querySelector("#task-form");
+const travelCrashControl = document.querySelector("#travel-crash-control");
+const travelCrashToggle = document.querySelector("#travel-crash-toggle");
 const submitButton = document.querySelector("#submit-button");
 const requestList = document.querySelector("#request-list");
 const requestCount = document.querySelector("#request-count");
@@ -30,6 +32,7 @@ const MAX_POLL_ATTEMPTS = 90;
 const MAX_VISIBLE_REQUESTS = 25;
 const PENDING_REQUEST_KEY = "operationsResearchHub.pendingRequest";
 const PENDING_REQUESTS_KEY = "operationsResearchHub.pendingRequests";
+const TRAVEL_AGENT_NAME = "travel-concierge";
 
 function setError(message) {
   if (!message) {
@@ -320,6 +323,10 @@ function selectAgent(agentName, replaceInput) {
   selectedCategory.textContent = agent.category;
   selectedDescription.textContent = agent.description;
   submitButton.disabled = false;
+  const canCrashDuringHotel = agent.name === TRAVEL_AGENT_NAME;
+  travelCrashControl.hidden = !canCrashDuringHotel;
+  travelCrashToggle.disabled = !canCrashDuringHotel;
+  if (!canCrashDuringHotel) travelCrashToggle.checked = false;
 
   if (replaceInput || !taskInput.value.trim()) {
     taskInput.value = agent.sample_input || "";
@@ -377,7 +384,10 @@ taskForm.addEventListener("submit", async (event) => {
   submitButton.textContent = "Starting...";
 
   try {
-    const response = await fetch("/runs", {
+    const shouldCrashDuringHotel =
+      state.selectedAgent.name === TRAVEL_AGENT_NAME && travelCrashToggle.checked;
+    const runsUrl = shouldCrashDuringHotel ? "/runs?crash_during_hotel=true" : "/runs";
+    const response = await fetch(runsUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

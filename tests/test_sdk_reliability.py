@@ -1,3 +1,4 @@
+import ast
 import importlib.util
 import os
 import sys
@@ -482,13 +483,21 @@ class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.env_patcher.start()
         self.DBOS = install_decorator_stubs()
+        self.env_patcher = mock.patch.dict(
+            os.environ,
+            {"DB_URL": "sqlite:///test"},
+            clear=False,
+        )
+        self.env_patcher.start()
+        self.addCleanup(self.env_patcher.stop)
         sdk_src = ROOT / "sdk" / "src"
         if str(sdk_src) not in sys.path:
             sys.path.insert(0, str(sdk_src))
-        for module_name in list(sys.modules):
-            if module_name == "sdk" or module_name.startswith("sdk."):
-                sys.modules.pop(module_name, None)
+        sys.modules.pop("sdk", None)
         sys.modules.pop("sdk.runtime", None)
+        sys.modules.pop("sdk.decorators", None)
+        self.decorators = load_module("sdk.decorators", "sdk/src/sdk/decorators.py")
+        sys.modules["sdk.decorators"] = self.decorators
         self.runtime = importlib.import_module("sdk.runtime")
         self.decorators = importlib.import_module("sdk.decorators")
 
@@ -504,7 +513,17 @@ class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
         registered = self.decorators.get_registered_agent("research-assistant")
         self.assertEqual(registered.name, "research-assistant")
         self.assertIs(registered.workflow, workflow_fn)
+        self.assertFalse(registered.queued)
         self.assertEqual(workflow_fn._dbos_workflow_name, "research-assistant")
+
+    def test_agent_decorator_stores_queued_metadata(self):
+        async def run_topic(topic: str) -> str:
+            return topic
+
+        self.decorators.register_agent(name="research-handoff-agent", queued=True)(run_topic)
+
+        registered = self.decorators.get_registered_agent("research-handoff-agent")
+        self.assertTrue(registered.queued)
 
     def test_agent_decorator_rejects_duplicate_names(self):
         self.decorators.register_agent(name="research-assistant")(lambda value: value)
@@ -589,6 +608,66 @@ class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             self.DBOS.started_workflows,
             [(workflow_fn, "hello"), (workflow_fn, "again")],
+        )
+
+    async def test_agent_service_start_runs_immediate_registered_agent(self):
+        async def run_topic(topic: str) -> str:
+            return topic
+
+        workflow_fn = self.decorators.register_agent(name="alpha")(run_topic)
+        agents = self.runtime.AgentService()
+
+        handle = await agents.start("alpha", "hello")
+
+        self.assertEqual(handle.workflow_id, "workflow-started")
+        self.assertEqual(self.DBOS.started_workflows, [(workflow_fn, "hello")])
+        self.assertEqual(self.DBOS.enqueued_workflows, [])
+        self.assertEqual(self.DBOS.registered_queues, [])
+
+    async def test_agent_service_start_enqueues_queued_registered_agent(self):
+        async def run_topic(topic: str) -> str:
+            return topic
+
+        workflow_fn = self.decorators.register_agent(name="alpha", queued=True)(run_topic)
+        agents = self.runtime.AgentService()
+
+        handle = await agents.start("alpha", "hello")
+
+        self.assertEqual(handle.workflow_id, "workflow-enqueued")
+        self.assertEqual(self.DBOS.started_workflows, [])
+        self.assertEqual(
+            self.DBOS.registered_queues,
+            [("agent-runs", {"on_conflict": "never_update"})],
+        )
+        self.assertEqual(
+            self.DBOS.enqueued_workflows,
+            [("agent-runs", workflow_fn, "hello")],
+        )
+
+    async def test_agent_service_start_queue_name_override_applies_to_queued_agents_only(self):
+        async def run_topic(topic: str) -> str:
+            return topic
+
+        queued_workflow = self.decorators.register_agent(name="queued", queued=True)(run_topic)
+        immediate_workflow = self.decorators.register_agent(name="immediate")(run_topic)
+        agents = self.runtime.AgentService()
+
+        queued_handle = await agents.start("queued", "queued-input", queue_name="slow-lane")
+        immediate_handle = await agents.start("immediate", "immediate-input", queue_name="slow-lane")
+
+        self.assertEqual(queued_handle.workflow_id, "workflow-enqueued")
+        self.assertEqual(immediate_handle.workflow_id, "workflow-started")
+        self.assertEqual(
+            self.DBOS.registered_queues,
+            [("slow-lane", {"on_conflict": "never_update"})],
+        )
+        self.assertEqual(
+            self.DBOS.enqueued_workflows,
+            [("slow-lane", queued_workflow, "queued-input")],
+        )
+        self.assertEqual(
+            self.DBOS.started_workflows,
+            [(immediate_workflow, "immediate-input")],
         )
 
     def test_worker_service_register_queue_initializes_and_registers_queue(self):
@@ -999,7 +1078,10 @@ class DemoRegistrationTests(unittest.TestCase):
         self.assertEqual(normalized["destination"], "Tokyo")
 
     def test_travel_request_normalizer_extracts_place_name_origins(self):
-        demo = load_module("multi_agent_demo_origins_under_test", "example_customer_app/user_agents/multi_agent_demo.py")
+        demo = load_module(
+            "multi_agent_demo_origins_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
 
         examples = [
             "book me a trip from massachusetts to canada",
@@ -1013,14 +1095,20 @@ class DemoRegistrationTests(unittest.TestCase):
                 self.assertEqual(normalized["destination"], "Canada")
 
     def test_travel_request_normalizer_defaults_origin_when_missing(self):
-        demo = load_module("multi_agent_demo_default_origin_under_test", "example_customer_app/user_agents/multi_agent_demo.py")
+        demo = load_module(
+            "multi_agent_demo_default_origin_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
 
         normalized = demo.normalize_travel_request("book me a trip to Canada")
 
         self.assertEqual(normalized["origin"], "SFO")
 
     def test_guardrail_blocks_final_until_all_specialists_complete(self):
-        demo = load_module("multi_agent_demo_guardrail_under_test", "example_customer_app/user_agents/multi_agent_demo.py")
+        demo = load_module(
+            "multi_agent_demo_guardrail_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
 
         self.assertEqual(demo.choose_guarded_next_action("final", {"flight"}), "hotel")
         self.assertEqual(
@@ -1033,7 +1121,10 @@ class DemoRegistrationTests(unittest.TestCase):
         self.assertEqual(demo.choose_guarded_next_action("flight", {"flight"}), "hotel")
 
     def test_planner_action_can_be_extracted_from_json_or_prose(self):
-        demo = load_module("multi_agent_demo_planner_parse_under_test", "example_customer_app/user_agents/multi_agent_demo.py")
+        demo = load_module(
+            "multi_agent_demo_planner_parse_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
 
         self.assertEqual(demo.extract_planner_action('{"next_action": "hotel"}'), "hotel")
         self.assertEqual(
@@ -1041,8 +1132,55 @@ class DemoRegistrationTests(unittest.TestCase):
             "budget",
         )
 
+    def test_queued_research_guardrail_blocks_final_until_all_phases_complete(self):
+        demo = load_module(
+            "queued_multi_agent_demo_guardrail_under_test",
+            "example_customer_app/user_agents/queued_multi_agent_demo.py",
+        )
+
+        self.assertEqual(
+            demo.choose_guarded_research_action("final", {"public_sources"}),
+            "counterarguments",
+        )
+        self.assertEqual(
+            demo.choose_guarded_research_action(
+                "final",
+                {"public_sources", "counterarguments", "evidence_brief"},
+            ),
+            "final",
+        )
+        self.assertEqual(
+            demo.choose_guarded_research_action("public_sources", {"public_sources"}),
+            "counterarguments",
+        )
+        self.assertEqual(
+            demo.choose_guarded_research_action(
+                "evidence_brief",
+                {"public_sources"},
+            ),
+            "counterarguments",
+        )
+
+    def test_queued_research_action_can_be_extracted_from_json_or_prose(self):
+        demo = load_module(
+            "queued_multi_agent_demo_planner_parse_under_test",
+            "example_customer_app/user_agents/queued_multi_agent_demo.py",
+        )
+
+        self.assertEqual(
+            demo.extract_research_action('{"next_action": "public_sources"}'),
+            "public_sources",
+        )
+        self.assertEqual(
+            demo.extract_research_action("I recommend the evidence brief next."),
+            "evidence brief",
+        )
+
     def test_hotel_quotes_do_not_crash_without_request_marker(self):
-        demo = load_module("multi_agent_demo_no_crash_under_test", "example_customer_app/user_agents/multi_agent_demo.py")
+        demo = load_module(
+            "multi_agent_demo_no_crash_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
         self.DBOS.workflow_id = "hotel-demo-1"
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1056,8 +1194,46 @@ class DemoRegistrationTests(unittest.TestCase):
         kill.assert_not_called()
         self.assertIn("Market House Hotel", quotes)
 
+    def test_travel_crash_is_only_armed_by_explicit_toggle(self):
+        source_path = ROOT / "example_customer_app" / "main.py"
+        source = source_path.read_text(encoding="utf-8")
+        module = ast.parse(source)
+        helper = next(
+            node
+            for node in module.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_should_arm_travel_crash"
+        )
+        namespace: dict[str, object] = {}
+        exec(compile(ast.Module([helper], []), str(source_path), "exec"), namespace)
+        should_arm_travel_crash = namespace["_should_arm_travel_crash"]
+
+        self.assertFalse(
+            should_arm_travel_crash(
+                "travel-concierge",
+                crash_during_hotel=False,
+            )
+        )
+        self.assertTrue(
+            should_arm_travel_crash(
+                "travel-concierge",
+                crash_during_hotel=True,
+            )
+        )
+        self.assertFalse(
+            should_arm_travel_crash(
+                "research-assistant",
+                crash_during_hotel=True,
+            )
+        )
+        self.assertNotIn("RANDOM_TRAVEL_CRASH_RATE", source)
+        self.assertNotIn("random.random", source)
+
     def test_hotel_crash_marker_prevents_repeated_crashes(self):
-        demo = load_module("multi_agent_demo_crash_marker_under_test", "example_customer_app/user_agents/multi_agent_demo.py")
+        demo = load_module(
+            "multi_agent_demo_crash_marker_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
         self.DBOS.workflow_id = "hotel-demo-2"
 
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -269,6 +269,44 @@ textarea:focus {
   outline: 3px solid rgba(15, 107, 99, 0.16);
 }
 
+.demo-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  color: var(--text);
+  background: var(--gold-soft);
+  border: 1px solid rgba(163, 106, 0, 0.28);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.demo-toggle input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+.demo-toggle span,
+.demo-toggle strong,
+.demo-toggle small {
+  display: block;
+}
+
+.demo-toggle strong {
+  font-size: 0.92rem;
+}
+
+.demo-toggle small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
 .form-footer {
   display: flex;
   align-items: center;
