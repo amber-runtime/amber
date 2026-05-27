@@ -30,6 +30,9 @@ class StepRecord(BaseModel):
     duration_ms: Optional[int]
     started_at_epoch_ms: Optional[int] = None
     completed_at_epoch_ms: Optional[int] = None
+    display_started_at_epoch_ms: Optional[int] = None
+    display_completed_at_epoch_ms: Optional[int] = None
+    display_duration_ms: Optional[int] = None
     step_output: Any | None = None
     agent_name: Optional[str] = None
     llm_model: Optional[str]

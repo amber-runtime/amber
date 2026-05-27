@@ -133,6 +133,7 @@ async def fetch_agent_events_for_dashboard(workflow_id: str, db_url: str) -> lis
 def build_step_records(
     steps: list[dict],
     agent_events: list[dict] | None = None,
+    workflow: dict | None = None,
 ) -> list[dict]:
     """
     Shape DBOS step records for dashboard consumption.
@@ -175,7 +176,7 @@ def build_step_records(
             tool_by_step[candidates[0]] = events[0]
 
     records = []
-    for step in steps:
+    for index, step in enumerate(steps):
         step_id = step.get("function_id")
         fn_name = step.get("function_name")
         started_at_epoch_ms = step.get("started_at_epoch_ms")
@@ -183,6 +184,35 @@ def build_step_records(
         duration_ms = None
         if started_at_epoch_ms is not None and completed_at_epoch_ms is not None:
             duration_ms = completed_at_epoch_ms - started_at_epoch_ms
+        display_started_at_epoch_ms = started_at_epoch_ms
+        display_completed_at_epoch_ms = completed_at_epoch_ms
+        display_duration_ms = duration_ms
+
+        if fn_name == "DBOS.sleep" and started_at_epoch_ms is not None:
+            next_started_at_epoch_ms = None
+            for next_step in steps[index + 1 :]:
+                next_started_at_epoch_ms = next_step.get("started_at_epoch_ms")
+                if next_started_at_epoch_ms is not None:
+                    break
+
+            if next_started_at_epoch_ms is not None:
+                display_completed_at_epoch_ms = next_started_at_epoch_ms
+            elif workflow and workflow.get("status") != "PENDING":
+                workflow_updated_at = workflow.get("updated_at")
+                if workflow_updated_at is not None:
+                    display_completed_at_epoch_ms = workflow_updated_at
+                else:
+                    display_completed_at_epoch_ms = None
+            else:
+                display_completed_at_epoch_ms = None
+
+            if display_completed_at_epoch_ms is not None:
+                display_duration_ms = max(
+                    display_completed_at_epoch_ms - started_at_epoch_ms,
+                    0,
+                )
+            else:
+                display_duration_ms = None
 
         llm = llm_by_step.get(step_id, {})
         tool = tool_by_step.get(step_id, {})
@@ -205,6 +235,9 @@ def build_step_records(
                 "duration_ms": duration_ms,
                 "started_at_epoch_ms": started_at_epoch_ms,
                 "completed_at_epoch_ms": completed_at_epoch_ms,
+                "display_started_at_epoch_ms": display_started_at_epoch_ms,
+                "display_completed_at_epoch_ms": display_completed_at_epoch_ms,
+                "display_duration_ms": display_duration_ms,
                 "step_output": _to_dashboard_value(step.get("output")),
                 "llm_model": llm.get("model"),
                 "tokens_in": llm.get("tokens_in"),

@@ -1,20 +1,43 @@
 import { parseSearchWebOutput } from '../../../../lib/stepHelpers'
 
 interface Props {
-  raw: string
+  value: unknown
 }
 
-// Renders search_web tool output as a list of {title, url, summary} cards.
-// Falls back to the raw text when the output doesn't match the expected shape.
-export function SearchWebResultsBlock({ raw }: Props) {
-  const results = parseSearchWebOutput(raw)
-  if (results.length === 0) {
+export type SearchResult = { title: string; url: string; summary: string }
+
+function hasSearchResultShape(value: unknown): value is SearchResult[] {
+  return Array.isArray(value) && value.every((item) => {
+    if (item == null || typeof item !== 'object') return false
+    const record = item as Record<string, unknown>
     return (
-      <pre className="bg-slate-950 border border-slate-800 rounded p-3 text-xs text-slate-300 overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap leading-relaxed">
-        {raw}
-      </pre>
+      typeof record.title === 'string' &&
+      (typeof record.url === 'string' ||
+        typeof record.href === 'string' ||
+        typeof record.summary === 'string' ||
+        typeof record.body === 'string')
     )
-  }
+  })
+}
+
+export function toSearchResults(value: unknown): SearchResult[] {
+  if (typeof value === 'string') return parseSearchWebOutput(value)
+  if (!hasSearchResultShape(value)) return []
+  return value.map((item) => {
+    const record = item as Record<string, unknown>
+    return {
+      title: String(record.title ?? ''),
+      url: String(record.url ?? record.href ?? ''),
+      summary: String(record.summary ?? record.body ?? ''),
+    }
+  })
+}
+
+// Renders search result payloads as title/url/summary cards.
+// Callers should handle generic fallback rendering when no recognized shape matches.
+export function SearchWebResultsBlock({ value }: Props) {
+  const results = toSearchResults(value)
+  if (results.length === 0) return null
   return (
     <div className="space-y-2">
       {results.map((r, i) => (

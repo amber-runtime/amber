@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import {
   Brain,
   Clock,
@@ -12,11 +13,14 @@ import {
   formatTimestamp,
   getStepKind,
   humanizeStepName,
+  stepCompletedAtMs,
+  stepDurationMs,
+  stepStartedAtMs,
 } from '../../../../lib/stepHelpers'
 import { Section } from './Section'
 import { JsonBlock } from './JsonBlock'
 import { LLMMessagesBlock } from './LLMMessagesBlock'
-import { SearchWebResultsBlock } from './SearchWebResultsBlock'
+import { OutputRenderer } from './OutputRenderer'
 import { DefList } from './DefList'
 
 interface Props {
@@ -42,7 +46,7 @@ function StatusBadge({ step }: { step: Step }) {
         Error
       </span>
     )
-  if (step.completed_at_epoch_ms == null)
+  if (stepCompletedAtMs(step) == null)
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30">
         Running
@@ -65,27 +69,37 @@ function SectionLabel({ children }: { children: string }) {
 }
 
 export function StepDetailPanel({ step }: Props) {
+  const [now, setNow] = useState(Date.now())
   const kind = getStepKind(step)
   const humanName = step.event_type === 'tool_call'
     ? humanizeStepName(step.tool_name ?? step.function_name)
     : humanizeStepName(step.function_name)
 
-  const startedAt = step.started_at_epoch_ms
-  const completedAt = step.completed_at_epoch_ms
-  const dur = step.duration_ms
+  const startedAt = stepStartedAtMs(step)
+  const completedAt = stepCompletedAtMs(step)
+  const dur = stepDurationMs(step)
+  const isRunningSleep = kind === 'sleep' && completedAt == null && startedAt != null
+  const displayDurationMs = isRunningSleep
+    ? Math.max(now - startedAt, 0)
+    : dur
+
+  useEffect(() => {
+    if (!isRunningSleep) return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [isRunningSleep])
 
   const timingRows: Array<[string, string]> = [
     ['Started', startedAt != null ? formatTimestamp(startedAt) : '—'],
     ['Completed', completedAt != null ? formatTimestamp(completedAt) : 'Still running'],
-    ['Duration', dur != null ? formatDuration(dur) : '—'],
+    ['Duration', displayDurationMs != null ? formatDuration(displayDurationMs) : '—'],
   ]
 
   const hasError = step.status === 'ERROR'
   const llmHasIO = kind === 'llm' && (step.llm_input != null || step.llm_output != null)
   const llmHasTokens =
     kind === 'llm' && (step.tokens_in != null || step.tokens_out != null)
-  const isSearchWeb =
-    step.tool_name === 'search_web' || step.function_name === 'search_web'
 
   return (
     <div>
@@ -116,7 +130,7 @@ export function StepDetailPanel({ step }: Props) {
           e.g., tool calls whose agent_events row got dropped at the data layer. */}
       {kind === 'other' && step.step_output != null && (
         <Section title="Step output" defaultExpanded>
-          <JsonBlock value={step.step_output} />
+          <OutputRenderer value={step.step_output} />
         </Section>
       )}
 
@@ -164,13 +178,7 @@ export function StepDetailPanel({ step }: Props) {
             {step.tool_result != null && (
               <div>
                 <SectionLabel>Result</SectionLabel>
-                {isSearchWeb ? (
-                  <SearchWebResultsBlock raw={step.tool_result} />
-                ) : (
-                  <pre className="bg-slate-950 border border-slate-800 rounded p-3 text-xs text-slate-300 overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap leading-relaxed">
-                    {step.tool_result}
-                  </pre>
-                )}
+                <OutputRenderer value={step.tool_result} />
               </div>
             )}
             {step.tool_args == null && step.tool_result == null && (
@@ -201,7 +209,9 @@ export function StepDetailPanel({ step }: Props) {
         <Section title="Sleep" defaultExpanded>
           <div className="flex items-baseline gap-2">
             <span className="text-3xl font-semibold text-slate-100 tabular-nums">
-              {dur != null ? (dur / 1000).toFixed(dur < 10000 ? 1 : 0) : '—'}
+              {displayDurationMs != null
+                ? (displayDurationMs / 1000).toFixed(displayDurationMs < 10000 ? 1 : 0)
+                : '—'}
             </span>
             <span className="text-sm text-slate-400">seconds</span>
           </div>

@@ -21,6 +21,7 @@ const STATUS_STYLES: Record<WorkflowStatus, string> = {
   PENDING: 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30',
   ERROR: 'bg-red-500/15 text-red-300 ring-1 ring-red-500/30',
   CANCELLED: 'bg-slate-800 text-slate-400 ring-1 ring-slate-700',
+  ENQUEUED: 'bg-blue-500/15 text-blue-300 ring-1 ring-blue-500/30',
 }
 
 function StatusBadge({ status }: { status: WorkflowStatus }) {
@@ -112,7 +113,7 @@ export function WorkflowDefaultPanel({ workflow, steps }: Props) {
   const inputAvailable = false   // backend-blocked; field doesn't exist on WorkflowInfo yet
   const finalAnswerExpandedByDefault =
     workflow.status === 'SUCCESS' && workflow.output != null
-  const recoveries = workflow.recoveries
+  const attempts = workflow.attempts
   const agents = countAgents(steps)
   const models = uniqueModels(steps)
   const pricingSyncedAt = usePricingSyncedAt()
@@ -128,8 +129,8 @@ export function WorkflowDefaultPanel({ workflow, steps }: Props) {
     ['Created', formatTimestamp(workflow.created_at)],
     ['Updated', formatTimestamp(workflow.updated_at)],
     ['Status', <StatusBadge key="status" status={workflow.status} />],
-    ...(recoveries > 0
-      ? ([['Recoveries', String(recoveries)]] as Array<[string, React.ReactNode]>)
+    ...(attempts != null && attempts > 0
+      ? ([['Attempts', String(attempts)]] as Array<[string, React.ReactNode]>)
       : []),
     [
       'Agents',

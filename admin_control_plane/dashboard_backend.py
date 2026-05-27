@@ -132,6 +132,7 @@ class QueuedWorkflowSummary(BaseModel):
     status: str
     created_at: Optional[int]
     queue_name: Optional[str]
+    recovery_attempts: Optional[int]
 
 
 class QueuedWorkflowListPage(BaseModel):
@@ -189,6 +190,7 @@ async def get_queued_workflows(
             status=r["status"],
             created_at=r["created_at"],
             queue_name=r.get("queue_name"),
+            recovery_attempts=r.get("recovery_attempts"),
         )
         for r in rows
     ]

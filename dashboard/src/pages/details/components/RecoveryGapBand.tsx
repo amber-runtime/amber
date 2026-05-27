@@ -17,7 +17,7 @@ export function RecoveryGapBand({
   windowStart,
   windowEnd,
 }: Props) {
-  if (workflow.recoveries <= 0) return null
+  if ((workflow.attempts ?? 0) <= 1) return null
 
   const gap = findLargestRecoveryGap(steps)
   if (gap == null) return null

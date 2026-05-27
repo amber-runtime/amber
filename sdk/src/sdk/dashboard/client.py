@@ -131,7 +131,7 @@ class DashboardClient:
 
         steps = await self.get_steps(workflow_id)
         agent_events = await fetch_agent_events_for_dashboard(workflow_id, self._db_url)
-        step_records = build_step_records(steps, agent_events)
+        step_records = build_step_records(steps, agent_events, workflow)
         return workflow, step_records, agent_events
 
     async def resume_workflow(

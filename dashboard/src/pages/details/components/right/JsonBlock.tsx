@@ -1,20 +1,20 @@
 // Recursively parse JSON strings nested inside arrays/objects.
 // Lets us render LLM/tool payloads that arrive as JSON-in-JSON legibly.
-function deepParse(value: unknown): unknown {
+export function normalizeOutputValue(value: unknown): unknown {
   if (typeof value === 'string') {
-    try { return deepParse(JSON.parse(value)) } catch { return value }
+    try { return normalizeOutputValue(JSON.parse(value)) } catch { return value }
   }
-  if (Array.isArray(value)) return value.map(deepParse)
+  if (Array.isArray(value)) return value.map(normalizeOutputValue)
   if (value !== null && typeof value === 'object')
     return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, deepParse(v)])
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, normalizeOutputValue(v)])
     )
   return value
 }
 
 export function prettyOutput(value: unknown): string {
   try {
-    return JSON.stringify(deepParse(value), null, 2)
+    return JSON.stringify(normalizeOutputValue(value), null, 2)
   } catch {
     return 'Unable to render'
   }
