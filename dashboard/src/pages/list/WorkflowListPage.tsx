@@ -3,16 +3,14 @@ import { useNavigate } from 'react-router-dom'
 import { RefreshCw, CheckCircle2, XCircle, AlertCircle, Loader2 } from 'lucide-react'
 import type { WorkflowSummary, WorkflowStatus } from '../../lib/types'
 import { useWorkflows } from '../../lib/workflowContext'
-import { humanizeWorkflowName, formatRelativeTime, formatDuration } from '../../lib/stepHelpers'
+import {
+  humanizeWorkflowName,
+  formatRelativeTime,
+  formatDuration,
+  shortWorkflowId,
+} from '../../lib/stepHelpers'
 import { PageHeader } from '../../shared/PageHeader'
-
-const STATUS_STYLES: Record<WorkflowStatus, { label: string; className: string }> = {
-  ENQUEUED:  { label: 'Enqueued', className: 'bg-blue-500/15 text-blue-300 border-blue-500/30' },
-  SUCCESS:   { label: 'Success', className: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' },
-  PENDING:   { label: 'Running', className: 'bg-amber-500/15 text-amber-300 border-amber-500/30' },
-  ERROR:     { label: 'Error', className: 'bg-red-500/15 text-red-400 border-red-500/30' },
-  CANCELLED: { label: 'Cancelled', className: 'bg-slate-700/50 text-slate-400 border-slate-600' },
-}
+import { StatusBadge, RetriedPill } from '../../shared/workflowStatus'
 
 type Filter = 'all' | 'completed' | 'running' | 'errored'
 
@@ -52,24 +50,6 @@ function StatusIcon({ status }: { status: WorkflowStatus }) {
   return <span className="w-3.5 h-3.5 rounded-full bg-slate-600 shrink-0" />
 }
 
-function StatusBadge({ status }: { status: WorkflowStatus }) {
-  const { label, className } = STATUS_STYLES[status] ?? STATUS_STYLES.CANCELLED
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${className}`}>
-      {label}
-    </span>
-  )
-}
-
-function RetriedPill({ attempts }: { attempts: number | null }) {
-  if (attempts == null || attempts <= 1) return null
-  return (
-    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap bg-amber-500/15 text-amber-300 border border-amber-500/30">
-      Retried
-    </span>
-  )
-}
-
 function workflowDuration(w: WorkflowSummary, now: number): string {
   if (w.status === 'PENDING') {
     return formatDuration(Math.max(0, now - w.created_at))
@@ -77,10 +57,6 @@ function workflowDuration(w: WorkflowSummary, now: number): string {
   const ms = (w.completed_at || now) - w.created_at
   if (ms <= 0) return '—'
   return formatDuration(ms)
-}
-
-function shortWorkflowId(id: string): string {
-  return id.length > 20 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id
 }
 
 export function WorkflowListPage() {
@@ -107,7 +83,7 @@ export function WorkflowListPage() {
   const FILTER_LABELS: Record<Filter, string> = {
     all: `All (${counts.all})`,
     completed: `Completed (${counts.completed})`,
-    running: `Running (${counts.running})`,
+    running: `Pending (${counts.running})`,
     errored: `Errored (${counts.errored})`,
   }
 

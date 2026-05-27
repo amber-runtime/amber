@@ -2,42 +2,13 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { RefreshCw, AlertCircle, Loader2 } from 'lucide-react'
 import { fetchQueuedWorkflows } from '../../lib/api'
-import type { QueuedWorkflowSummary, WorkflowStatus } from '../../lib/types'
-import { humanizeWorkflowName, formatRelativeTime } from '../../lib/stepHelpers'
+import type { QueuedWorkflowSummary } from '../../lib/types'
+import { humanizeWorkflowName, formatRelativeTime, shortWorkflowId } from '../../lib/stepHelpers'
 import { PageHeader } from '../../shared/PageHeader'
+import { StatusBadge, RetriedPill } from '../../shared/workflowStatus'
 
 const POLL_DELAY_MS = 5000
 const PAGE_SIZE = 50
-
-const STATUS_STYLES: Record<WorkflowStatus, { label: string; className: string }> = {
-  ENQUEUED:  { label: 'Enqueued',  className: 'bg-blue-500/15 text-blue-300 border-blue-500/30' },
-  SUCCESS:   { label: 'Success',   className: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' },
-  PENDING:   { label: 'Running',   className: 'bg-amber-500/15 text-amber-300 border-amber-500/30' },
-  ERROR:     { label: 'Error',     className: 'bg-red-500/15 text-red-400 border-red-500/30' },
-  CANCELLED: { label: 'Cancelled', className: 'bg-slate-700/50 text-slate-400 border-slate-600' },
-}
-
-function StatusBadge({ status }: { status: WorkflowStatus }) {
-  const { label, className } = STATUS_STYLES[status] ?? STATUS_STYLES.CANCELLED
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${className}`}>
-      {label}
-    </span>
-  )
-}
-
-function RetriedPill({ attempts }: { attempts: number | null }) {
-  if (attempts == null || attempts <= 1) return null
-  return (
-    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border bg-amber-500/15 text-amber-300 border-amber-500/30">
-      Retried
-    </span>
-  )
-}
-
-function shortWorkflowId(id: string): string {
-  return id.length > 20 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id
-}
 
 export function QueuedPage() {
   const navigate = useNavigate()

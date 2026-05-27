@@ -85,6 +85,10 @@ export function formatTimestamp(epochMs: number): string {
   })
 }
 
+export function shortWorkflowId(id: string): string {
+  return id.length > 20 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id
+}
+
 export function parseSearchWebOutput(
   raw: string,
 ): Array<{ title: string; url: string; summary: string }> {

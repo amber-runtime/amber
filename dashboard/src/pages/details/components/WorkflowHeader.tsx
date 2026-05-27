@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { RotateCcw, Square, Loader2 } from 'lucide-react'
-import type { WorkflowInfo, WorkflowStatus, Step } from '../../../lib/types'
+import type { WorkflowInfo, Step } from '../../../lib/types'
 import {
   humanizeWorkflowName,
   formatTimestamp,
@@ -14,19 +14,12 @@ import {
 } from '../../../lib/stepHelpers'
 import { resumeWorkflow, cancelWorkflow } from '../../../lib/api'
 import { showToast } from '../../../shared/Toast'
+import { StatusBadge } from '../../../shared/workflowStatus'
 import { CopyButton } from './right/CopyButton'
 
 interface Props {
   workflow: WorkflowInfo
   steps: Step[]
-}
-
-const STATUS_STYLES: Record<WorkflowStatus, string> = {
-  SUCCESS: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30',
-  PENDING: 'bg-amber-500/15 text-amber-300 border border-amber-500/30',
-  ERROR: 'bg-red-500/15 text-red-300 border border-red-500/30',
-  CANCELLED: 'bg-slate-800 text-slate-400 border border-slate-700',
-  ENQUEUED: 'bg-blue-500/15 text-blue-300 border border-blue-500/30',
 }
 
 function StatItem({ label, value }: { label: string; value: string }) {
@@ -129,11 +122,7 @@ export function WorkflowHeader({ workflow, steps }: Props) {
         <h1 className="text-xl font-semibold text-slate-50 tracking-tight">
           {humanizeWorkflowName(workflow.name)}
         </h1>
-        <span
-          className={`px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide ${STATUS_STYLES[workflow.status]}`}
-        >
-          {workflow.status}
-        </span>
+        <StatusBadge status={workflow.status} />
         <span className="flex items-center font-mono text-xs text-slate-400">
           {workflow.workflow_id}
           <CopyButton text={workflow.workflow_id} label="Copy workflow ID" />
