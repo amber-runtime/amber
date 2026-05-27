@@ -43,7 +43,8 @@ export function WorkflowDetailPage() {
     }
     const workflowId = id
     loadWorkflowIdRef.current = workflowId
-    const promise = (async () => {
+    let promise!: Promise<void>
+    promise = (async () => {
       try {
         const detail = await fetchWorkflowDetail(workflowId)
         setDetail(workflowId, detail)
