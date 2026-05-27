@@ -33,7 +33,6 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
-QUEUED_AGENT_NAMES = {"research-handoff-agent"}
 runtime = Runtime()
 agents = AgentService(runtime)
 
@@ -235,8 +234,5 @@ async def create_run(
     ):
         run_input = multi_agent_demo.request_hotel_crash_demo(run_input)
 
-    if request.agent in QUEUED_AGENT_NAMES:
-        handle = await agents.enqueue(request.agent, run_input)
-    else:
-        handle = await agents.run(request.agent, run_input)
+    handle = await agents.start(request.agent, run_input)
     return RunResponse(workflow_id=handle.workflow_id, agent=request.agent)

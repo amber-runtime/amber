@@ -434,9 +434,13 @@ def install_decorator_stubs():
     class DBOSRunner:
         pass
 
+    class DBOSClient:
+        pass
+
     DBOS.launch = mock.Mock(side_effect=lambda: DBOS.call_order.append("launch"))
 
     dbos.DBOS = DBOS
+    dbos.DBOSClient = DBOSClient
     dbos.DBOSConfig = dict
     dbos_openai_agents.DBOSRunner = DBOSRunner
 
@@ -481,11 +485,21 @@ def install_agents_stubs():
 class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.DBOS = install_decorator_stubs()
-        self.decorators = load_module("decorators_registry_under_test", "sdk/src/sdk/decorators.py")
+        self.env_patcher = mock.patch.dict(
+            os.environ,
+            {"DB_URL": "sqlite:///test"},
+            clear=False,
+        )
+        self.env_patcher.start()
+        self.addCleanup(self.env_patcher.stop)
         sdk_src = ROOT / "sdk" / "src"
         if str(sdk_src) not in sys.path:
             sys.path.insert(0, str(sdk_src))
+        sys.modules.pop("sdk", None)
         sys.modules.pop("sdk.runtime", None)
+        sys.modules.pop("sdk.decorators", None)
+        self.decorators = load_module("sdk.decorators", "sdk/src/sdk/decorators.py")
+        sys.modules["sdk.decorators"] = self.decorators
         self.runtime = importlib.import_module("sdk.runtime")
 
     def test_agent_decorator_registers_named_workflow(self):
@@ -497,7 +511,17 @@ class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
         registered = self.decorators.get_registered_agent("research-assistant")
         self.assertEqual(registered.name, "research-assistant")
         self.assertIs(registered.workflow, workflow_fn)
+        self.assertFalse(registered.queued)
         self.assertEqual(workflow_fn._dbos_workflow_name, "research-assistant")
+
+    def test_agent_decorator_stores_queued_metadata(self):
+        async def run_topic(topic: str) -> str:
+            return topic
+
+        self.decorators.register_agent(name="research-handoff-agent", queued=True)(run_topic)
+
+        registered = self.decorators.get_registered_agent("research-handoff-agent")
+        self.assertTrue(registered.queued)
 
     def test_agent_decorator_rejects_duplicate_names(self):
         self.decorators.register_agent(name="research-assistant")(lambda value: value)
@@ -582,6 +606,66 @@ class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             self.DBOS.started_workflows,
             [(workflow_fn, "hello"), (workflow_fn, "again")],
+        )
+
+    async def test_agent_service_start_runs_immediate_registered_agent(self):
+        async def run_topic(topic: str) -> str:
+            return topic
+
+        workflow_fn = self.decorators.register_agent(name="alpha")(run_topic)
+        agents = self.runtime.AgentService()
+
+        handle = await agents.start("alpha", "hello")
+
+        self.assertEqual(handle.workflow_id, "workflow-started")
+        self.assertEqual(self.DBOS.started_workflows, [(workflow_fn, "hello")])
+        self.assertEqual(self.DBOS.enqueued_workflows, [])
+        self.assertEqual(self.DBOS.registered_queues, [])
+
+    async def test_agent_service_start_enqueues_queued_registered_agent(self):
+        async def run_topic(topic: str) -> str:
+            return topic
+
+        workflow_fn = self.decorators.register_agent(name="alpha", queued=True)(run_topic)
+        agents = self.runtime.AgentService()
+
+        handle = await agents.start("alpha", "hello")
+
+        self.assertEqual(handle.workflow_id, "workflow-enqueued")
+        self.assertEqual(self.DBOS.started_workflows, [])
+        self.assertEqual(
+            self.DBOS.registered_queues,
+            [("agent-runs", {"on_conflict": "never_update"})],
+        )
+        self.assertEqual(
+            self.DBOS.enqueued_workflows,
+            [("agent-runs", workflow_fn, "hello")],
+        )
+
+    async def test_agent_service_start_queue_name_override_applies_to_queued_agents_only(self):
+        async def run_topic(topic: str) -> str:
+            return topic
+
+        queued_workflow = self.decorators.register_agent(name="queued", queued=True)(run_topic)
+        immediate_workflow = self.decorators.register_agent(name="immediate")(run_topic)
+        agents = self.runtime.AgentService()
+
+        queued_handle = await agents.start("queued", "queued-input", queue_name="slow-lane")
+        immediate_handle = await agents.start("immediate", "immediate-input", queue_name="slow-lane")
+
+        self.assertEqual(queued_handle.workflow_id, "workflow-enqueued")
+        self.assertEqual(immediate_handle.workflow_id, "workflow-started")
+        self.assertEqual(
+            self.DBOS.registered_queues,
+            [("slow-lane", {"on_conflict": "never_update"})],
+        )
+        self.assertEqual(
+            self.DBOS.enqueued_workflows,
+            [("slow-lane", queued_workflow, "queued-input")],
+        )
+        self.assertEqual(
+            self.DBOS.started_workflows,
+            [(immediate_workflow, "immediate-input")],
         )
 
     def test_worker_service_register_queue_initializes_and_registers_queue(self):
@@ -705,8 +789,14 @@ class DemoRegistrationTests(unittest.TestCase):
         sys.modules["sdk"] = sdk
 
     def test_demo_imports_register_only_top_level_agents(self):
-        load_module("single_agent_demo_under_test", "user_agents/single_agent_demo.py")
-        load_module("multi_agent_demo_under_test", "user_agents/multi_agent_demo.py")
+        load_module(
+            "single_agent_demo_under_test",
+            "example_customer_app/user_agents/single_agent_demo.py",
+        )
+        load_module(
+            "multi_agent_demo_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
 
         self.assertEqual(
             [agent.name for agent in self.decorators.list_registered_agents()],
@@ -714,7 +804,10 @@ class DemoRegistrationTests(unittest.TestCase):
         )
 
     def test_travel_request_normalizer_accepts_vague_prompt(self):
-        demo = load_module("multi_agent_demo_normalizer_under_test", "user_agents/multi_agent_demo.py")
+        demo = load_module(
+            "multi_agent_demo_normalizer_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
 
         normalized = demo.normalize_travel_request("book me a trip to Tokyo")
 
@@ -726,7 +819,10 @@ class DemoRegistrationTests(unittest.TestCase):
         self.assertEqual(normalized["budget"], 3000)
 
     def test_travel_request_normalizer_extracts_obvious_overrides(self):
-        demo = load_module("multi_agent_demo_complete_under_test", "user_agents/multi_agent_demo.py")
+        demo = load_module(
+            "multi_agent_demo_complete_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
 
         normalized = demo.normalize_travel_request(
             "Book a luxury trip to Paris from JFK for 4 people, "
@@ -742,7 +838,10 @@ class DemoRegistrationTests(unittest.TestCase):
         self.assertEqual(normalized["travel_style"], "luxury")
 
     def test_travel_request_normalizer_respects_edited_destination_prompts(self):
-        demo = load_module("multi_agent_demo_destinations_under_test", "user_agents/multi_agent_demo.py")
+        demo = load_module(
+            "multi_agent_demo_destinations_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
 
         examples = {
             "booking your trip to washington": "Washington",
@@ -756,14 +855,20 @@ class DemoRegistrationTests(unittest.TestCase):
                 self.assertEqual(normalized["destination"], expected_destination)
 
     def test_travel_request_normalizer_defaults_destination_when_missing(self):
-        demo = load_module("multi_agent_demo_default_destination_under_test", "user_agents/multi_agent_demo.py")
+        demo = load_module(
+            "multi_agent_demo_default_destination_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
 
         normalized = demo.normalize_travel_request("book me a balanced trip from SFO for 2 people")
 
         self.assertEqual(normalized["destination"], "Tokyo")
 
     def test_travel_request_normalizer_extracts_place_name_origins(self):
-        demo = load_module("multi_agent_demo_origins_under_test", "user_agents/multi_agent_demo.py")
+        demo = load_module(
+            "multi_agent_demo_origins_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
 
         examples = [
             "book me a trip from massachusetts to canada",
@@ -777,14 +882,20 @@ class DemoRegistrationTests(unittest.TestCase):
                 self.assertEqual(normalized["destination"], "Canada")
 
     def test_travel_request_normalizer_defaults_origin_when_missing(self):
-        demo = load_module("multi_agent_demo_default_origin_under_test", "user_agents/multi_agent_demo.py")
+        demo = load_module(
+            "multi_agent_demo_default_origin_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
 
         normalized = demo.normalize_travel_request("book me a trip to Canada")
 
         self.assertEqual(normalized["origin"], "SFO")
 
     def test_guardrail_blocks_final_until_all_specialists_complete(self):
-        demo = load_module("multi_agent_demo_guardrail_under_test", "user_agents/multi_agent_demo.py")
+        demo = load_module(
+            "multi_agent_demo_guardrail_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
 
         self.assertEqual(demo.choose_guarded_next_action("final", {"flight"}), "hotel")
         self.assertEqual(
@@ -797,7 +908,10 @@ class DemoRegistrationTests(unittest.TestCase):
         self.assertEqual(demo.choose_guarded_next_action("flight", {"flight"}), "hotel")
 
     def test_planner_action_can_be_extracted_from_json_or_prose(self):
-        demo = load_module("multi_agent_demo_planner_parse_under_test", "user_agents/multi_agent_demo.py")
+        demo = load_module(
+            "multi_agent_demo_planner_parse_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
 
         self.assertEqual(demo.extract_planner_action('{"next_action": "hotel"}'), "hotel")
         self.assertEqual(
@@ -806,7 +920,10 @@ class DemoRegistrationTests(unittest.TestCase):
         )
 
     def test_hotel_quotes_do_not_crash_without_request_marker(self):
-        demo = load_module("multi_agent_demo_no_crash_under_test", "user_agents/multi_agent_demo.py")
+        demo = load_module(
+            "multi_agent_demo_no_crash_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
         self.DBOS.workflow_id = "hotel-demo-1"
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -856,7 +973,10 @@ class DemoRegistrationTests(unittest.TestCase):
         self.assertNotIn("random.random", source)
 
     def test_hotel_crash_marker_prevents_repeated_crashes(self):
-        demo = load_module("multi_agent_demo_crash_marker_under_test", "user_agents/multi_agent_demo.py")
+        demo = load_module(
+            "multi_agent_demo_crash_marker_under_test",
+            "example_customer_app/user_agents/multi_agent_demo.py",
+        )
         self.DBOS.workflow_id = "hotel-demo-2"
 
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -133,7 +133,7 @@ research_coordinator = Agent(
 )
 
 
-@register_agent(name="research-handoff-agent")
+@register_agent(name="research-handoff-agent", queued=True)
 async def run_agent(message: str) -> str:
     result = await agent_runner(
         starting_agent=research_coordinator,
