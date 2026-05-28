@@ -25,6 +25,9 @@ amber config list
 # Full deploy (terraform + docker build + ECS restart + frontend)
 amber deploy
 
+# Check everything is healthy
+amber status
+
 # Partial deploys
 amber deploy --no-infra       # skip terraform
 amber deploy --no-build       # skip docker build/push
@@ -40,7 +43,7 @@ amber deploy --service customer-app  # build one service only
 | `amber deploy` | Build and deploy to AWS |
 | `amber config list` | Show project info and secrets status |
 | `amber config set <key>` | Set a secret (SSM/Secrets Manager) |
-| `amber status` | Show service health (stub) |
+|| `amber status` | Show ECS health, registered agents, URLs | |
 
 ## amber.yaml
 
@@ -78,3 +81,6 @@ The CLI manages these secrets in AWS:
 2. **Docker** — build images and push to ECR
 3. **ECS** — force new deployment for both services
 4. **Frontend** — build React dashboard, sync to S3, invalidate CloudFront
+
+The deploy command also auto-updates `dashboard/.env.production` with the current
+CloudFront domain from terraform output, so fresh deploys always get the right URLs.
