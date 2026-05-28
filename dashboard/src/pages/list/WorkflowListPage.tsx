@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { RefreshCw, CheckCircle2, XCircle, AlertCircle, Loader2 } from 'lucide-react'
-import type { WorkflowSummary, WorkflowStatus } from '../../lib/types'
+import type { WorkflowStatus } from '../../lib/types'
 import { useWorkflows } from '../../lib/workflowContext'
 import {
   humanizeWorkflowName,
   formatRelativeTime,
-  formatDuration,
+  formatWorkflowDuration,
   shortWorkflowId,
   deriveWorkflowDisplayStatus,
 } from '../../lib/stepHelpers'
@@ -80,15 +80,6 @@ function StatusIcon({ status }: { status: WorkflowStatus }) {
       </span>
     )
   return <span className="w-3.5 h-3.5 rounded-full bg-slate-600 shrink-0" />
-}
-
-function workflowDuration(w: WorkflowSummary, now: number): string {
-  if (w.status === 'PENDING') {
-    return formatDuration(Math.max(0, now - w.created_at))
-  }
-  const ms = (w.completed_at || now) - w.created_at
-  if (ms <= 0) return '—'
-  return formatDuration(ms)
 }
 
 export function WorkflowListPage() {
@@ -286,7 +277,7 @@ export function WorkflowListPage() {
                           {formatRelativeTime(w.created_at)}
                         </td>
                         <td className="pr-4 py-3.5 text-xs font-mono text-slate-300 text-right whitespace-nowrap">
-                          {workflowDuration(w, now)}
+                          {formatWorkflowDuration(w, now)}
                         </td>
                         <td className="pr-4 py-3.5 text-right">
                           <StatusBadge status={displayStatus} />

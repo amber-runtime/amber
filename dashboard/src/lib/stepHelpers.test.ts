@@ -9,6 +9,7 @@ import {
   errorDowntimeInterval,
   findLargestRecoveryGap,
   formatCost,
+  formatWorkflowDuration,
   groupStepsByAgent,
   humanizeStepName,
   humanizeWorkflowName,
@@ -18,6 +19,7 @@ import {
   sumTokens,
   sumTokensIn,
   sumTokensOut,
+  workflowDurationMs,
 } from './stepHelpers'
 import { makeStep, makeToolStep, makeWorkflow } from '../test/fixtures'
 
@@ -151,6 +153,76 @@ describe('stepHelpers', () => {
     expect(isWorkflowActivelyRunning('ERROR')).toBe(false)
     expect(isWorkflowActivelyRunning('CANCELLED')).toBe(false)
     expect(isWorkflowActivelyRunning('MAX_RECOVERY_ATTEMPTS_EXCEEDED')).toBe(false)
+  })
+
+  it('uses a live duration clock for pending workflows', () => {
+    const workflow = makeWorkflow({
+      status: 'PENDING',
+      created_at: 1_000,
+      updated_at: 1_000,
+    })
+
+    expect(workflowDurationMs(workflow, 4_500)).toBe(3_500)
+    expect(formatWorkflowDuration(workflow, 4_500)).toBe('3.5s')
+  })
+
+  it('uses fixed end timestamps for terminal workflow durations', () => {
+    expect(
+      workflowDurationMs(
+        makeWorkflow({
+          status: 'SUCCESS',
+          created_at: 1_000,
+          updated_at: 5_000,
+        }),
+        10_000,
+      ),
+    ).toBe(4_000)
+
+    expect(
+      formatWorkflowDuration(
+        {
+          status: 'ERROR',
+          created_at: 1_000,
+          completed_at: 6_000,
+        },
+        10_000,
+      ),
+    ).toBe('5.0s')
+  })
+
+  it('formats zero workflow duration while invalid timestamps remain unavailable', () => {
+    expect(
+      workflowDurationMs(
+        makeWorkflow({
+          status: 'SUCCESS',
+          created_at: 1_000,
+          updated_at: 1_000,
+        }),
+      ),
+    ).toBe(0)
+    expect(
+      formatWorkflowDuration(
+        makeWorkflow({
+          status: 'SUCCESS',
+          created_at: 1_000,
+          updated_at: 1_000,
+        }),
+      ),
+    ).toBe('0ms')
+    expect(
+      workflowDurationMs(
+        makeWorkflow({
+          created_at: Number.NaN,
+        }),
+      ),
+    ).toBeNull()
+    expect(
+      formatWorkflowDuration(
+        makeWorkflow({
+          created_at: Number.NaN,
+        }),
+      ),
+    ).toBe('—')
   })
 
   it('can extend workflow windows with a visual end override', () => {

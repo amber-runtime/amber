@@ -1,10 +1,9 @@
-import { screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { setPricing } from '../../../lib/pricingStore'
 import { makeStep, makeToolStep, makeWorkflow } from '../../../test/fixtures'
 import { WorkflowHeader } from './WorkflowHeader'
-import { render } from '@testing-library/react'
 
 const apiMocks = vi.hoisted(() => ({
   resumeWorkflow: vi.fn(),
@@ -19,6 +18,10 @@ vi.mock('../../../lib/api', () => apiMocks)
 vi.mock('../../../shared/Toast', () => toastMocks)
 
 describe('WorkflowHeader', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('renders workflow stats from steps', () => {
     setPricing(
       {
@@ -48,6 +51,47 @@ describe('WorkflowHeader', () => {
     expect(screen.getAllByText('1')).toHaveLength(2)
     expect(screen.getByText('1,000 in · 500 out')).toBeInTheDocument()
     expect(screen.getByText('<$0.01')).toBeInTheDocument()
+  })
+
+  it('renders pending workflow duration from the live clock', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(4_000)
+
+    render(
+      <WorkflowHeader
+        workflow={makeWorkflow({
+          status: 'PENDING',
+          created_at: 1_000,
+          updated_at: 1_000,
+        })}
+        steps={[]}
+        displayStatus="PENDING"
+      />,
+    )
+
+    expect(screen.getByText('3.0s')).toBeInTheDocument()
+
+    act(() => {
+      vi.advanceTimersByTime(1_000)
+    })
+
+    expect(screen.getByText('4.0s')).toBeInTheDocument()
+  })
+
+  it('keeps duration visible when created and updated timestamps match', () => {
+    render(
+      <WorkflowHeader
+        workflow={makeWorkflow({
+          status: 'SUCCESS',
+          created_at: 1_000,
+          updated_at: 1_000,
+        })}
+        steps={[]}
+        displayStatus="SUCCESS"
+      />,
+    )
+
+    expect(screen.getByText('0ms')).toBeInTheDocument()
   })
 
   it('enables resume only for resumable statuses and cancel only for pending', () => {

@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { RotateCcw, Square, Loader2 } from 'lucide-react'
 import type { WorkflowInfo, Step } from '../../../lib/types'
 import {
   humanizeWorkflowName,
   formatTimestamp,
-  formatDuration,
+  formatWorkflowDuration,
   sumTokensIn,
   sumTokensOut,
   estimateCost,
@@ -145,12 +145,16 @@ function ActionButton({
 
 export function WorkflowHeader({ workflow, steps, displayStatus, onActionSuccess }: Props) {
   const [pending, setPending] = useState<'resume' | 'cancel' | null>(null)
+  const [nowMs, setNowMs] = useState(() => Date.now())
 
-  const totalDuration =
-    workflow.updated_at > workflow.created_at
-      ? workflow.updated_at - workflow.created_at
-      : null
+  useEffect(() => {
+    if (workflow.status !== 'PENDING') return
+    setNowMs(Date.now())
+    const timer = setInterval(() => setNowMs(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [workflow.status, workflow.workflow_id])
 
+  const totalDuration = formatWorkflowDuration(workflow, nowMs)
   const tokensIn = sumTokensIn(steps)
   const tokensOut = sumTokensOut(steps)
   const attempts = workflow.attempts
@@ -232,9 +236,7 @@ export function WorkflowHeader({ workflow, steps, displayStatus, onActionSuccess
           Started {formatTimestamp(workflow.created_at)}
         </span>
 
-        {totalDuration != null && (
-          <StatItem label="Duration" value={formatDuration(totalDuration)} />
-        )}
+        <StatItem label="Duration" value={totalDuration} />
 
         {attempts != null && attempts > 0 && (
           <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${

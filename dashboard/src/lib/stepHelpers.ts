@@ -1,4 +1,11 @@
-import type { Step, AgentGroup, WorkflowInfo, WorkflowStatus, ModelPricing } from './types'
+import type {
+  Step,
+  AgentGroup,
+  WorkflowInfo,
+  WorkflowSummary,
+  WorkflowStatus,
+  ModelPricing,
+} from './types'
 import { getPricing } from './pricingStore'
 
 export type StepKind = 'llm' | 'tool' | 'sleep' | 'other'
@@ -70,6 +77,39 @@ export function formatDuration(ms: number): string {
   const m = Math.floor(s / 60)
   const rem = Math.round(s % 60)
   return `${m}m ${rem}s`
+}
+
+type WorkflowDurationInput =
+  | Pick<WorkflowInfo, 'status' | 'created_at' | 'updated_at'>
+  | Pick<WorkflowSummary, 'status' | 'created_at' | 'completed_at'>
+
+function isFiniteTimestamp(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+export function workflowDurationMs(
+  workflow: WorkflowDurationInput,
+  nowMs = Date.now(),
+): number | null {
+  if (!isFiniteTimestamp(workflow.created_at)) return null
+
+  const endMs =
+    workflow.status === 'PENDING'
+      ? nowMs
+      : 'completed_at' in workflow
+        ? workflow.completed_at
+        : workflow.updated_at
+
+  if (!isFiniteTimestamp(endMs)) return null
+  return Math.max(endMs - workflow.created_at, 0)
+}
+
+export function formatWorkflowDuration(
+  workflow: WorkflowDurationInput,
+  nowMs = Date.now(),
+): string {
+  const durationMs = workflowDurationMs(workflow, nowMs)
+  return durationMs == null ? '—' : formatDuration(durationMs)
 }
 
 export function formatRelativeTime(epochMs: number): string {
