@@ -148,6 +148,7 @@ def build_step_records(
     llm_by_step: dict[int, dict] = {}
     tool_by_step: dict[int, dict] = {}
     unmatched_tools: dict[str, list[dict]] = {}
+    tool_names_seen: set[str] = set()
     if agent_events:
         for event in agent_events:
             sid = event.get("step_id")
@@ -156,12 +157,13 @@ def build_step_records(
                 if sid is not None and sid not in llm_by_step:
                     llm_by_step[sid] = event
             elif etype == "tool_call":
+                tool_name = event.get("tool_name")
+                if tool_name:
+                    tool_names_seen.add(tool_name)
                 if sid is not None and sid not in tool_by_step:
                     tool_by_step[sid] = event
-                elif sid is None:
-                    tool_name = event.get("tool_name")
-                    if tool_name:
-                        unmatched_tools.setdefault(tool_name, []).append(event)
+                elif sid is None and tool_name:
+                    unmatched_tools.setdefault(tool_name, []).append(event)
 
     candidate_steps_by_name: dict[str, list[int]] = {}
     for step in steps:
@@ -170,6 +172,10 @@ def build_step_records(
         if step_id is not None and fn_name and step_id not in tool_by_step:
             candidate_steps_by_name.setdefault(fn_name, []).append(step_id)
 
+    # Enrichment is best-effort and deliberately strict: multi-call and
+    # recovered-workflow enrichment is deferred because recovery replay inflates
+    # event counts (a cached step can produce >1 agent_events row). The
+    # tool-call counter no longer depends on this — see tool_names_seen below.
     for tool_name, events in unmatched_tools.items():
         candidates = candidate_steps_by_name.get(tool_name, [])
         if len(events) == 1 and len(candidates) == 1:
@@ -223,7 +229,7 @@ def build_step_records(
         event_type = "step"
         if llm:
             event_type = "llm_response"
-        elif tool:
+        elif tool or fn_name in tool_names_seen:
             event_type = "tool_call"
 
         records.append(
