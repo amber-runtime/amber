@@ -1283,15 +1283,20 @@ class DemoRegistrationTests(unittest.TestCase):
             for node in module.body
             if isinstance(node, ast.FunctionDef)
             and node.name
-            in {"_should_force_enterprise_compliance", "_should_fail_compliance_handoff"}
+            in {"_should_fail_compliance_handoff", "_arm_enterprise_failure_input"}
         }
         namespace: dict[str, object] = {}
+        error_agent_demo_stub = types.SimpleNamespace(
+            enable_enterprise_compliance_branch=lambda value: f"{value}\n[force]",
+            enable_compliance_handoff_failure=lambda value: f"{value}\n[fail]",
+        )
+        namespace["error_agent_demo"] = error_agent_demo_stub
         exec(
             compile(
                 ast.Module(
                     [
-                        helpers["_should_force_enterprise_compliance"],
                         helpers["_should_fail_compliance_handoff"],
+                        helpers["_arm_enterprise_failure_input"],
                     ],
                     [],
                 ),
@@ -1301,18 +1306,6 @@ class DemoRegistrationTests(unittest.TestCase):
             namespace,
         )
 
-        self.assertFalse(
-            namespace["_should_force_enterprise_compliance"](
-                "enterprise-onboarding-error-demo",
-                force_enterprise_compliance=False,
-            )
-        )
-        self.assertTrue(
-            namespace["_should_force_enterprise_compliance"](
-                "enterprise-onboarding-error-demo",
-                force_enterprise_compliance=True,
-            )
-        )
         self.assertFalse(
             namespace["_should_fail_compliance_handoff"](
                 "research-assistant",
@@ -1325,6 +1318,11 @@ class DemoRegistrationTests(unittest.TestCase):
                 fail_compliance_handoff=True,
             )
         )
+        self.assertEqual(
+            namespace["_arm_enterprise_failure_input"]("demo request"),
+            "demo request\n[force]\n[fail]",
+        )
+        self.assertNotIn("force_enterprise_compliance:", source)
 
     def test_hotel_crash_marker_prevents_repeated_crashes(self):
         demo = load_module(

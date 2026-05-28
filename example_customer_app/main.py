@@ -149,14 +149,6 @@ def _arm_travel_crash_input(agent: str, run_input: str) -> str:
     return run_input
 
 
-def _should_force_enterprise_compliance(
-    agent: str,
-    *,
-    force_enterprise_compliance: bool,
-) -> bool:
-    return agent == "enterprise-onboarding-error-demo" and force_enterprise_compliance
-
-
 def _should_fail_compliance_handoff(
     agent: str,
     *,
@@ -165,16 +157,10 @@ def _should_fail_compliance_handoff(
     return agent == "enterprise-onboarding-error-demo" and fail_compliance_handoff
 
 
-def _arm_enterprise_demo_input(
-    run_input: str,
-    *,
-    force_enterprise_compliance: bool,
-    fail_compliance_handoff: bool,
-) -> str:
-    if force_enterprise_compliance:
-        run_input = error_agent_demo.enable_enterprise_compliance_branch(run_input)
-    if fail_compliance_handoff:
-        run_input = error_agent_demo.enable_compliance_handoff_failure(run_input)
+def _arm_enterprise_failure_input(run_input: str) -> str:
+    # The failure toggle should guarantee this exact fatal path regardless of prompt wording.
+    run_input = error_agent_demo.enable_enterprise_compliance_branch(run_input)
+    run_input = error_agent_demo.enable_compliance_handoff_failure(run_input)
     return run_input
 
 
@@ -292,18 +278,11 @@ async def create_run(
             "travel-concierge hotel quote lookup."
         ),
     ),
-    force_enterprise_compliance: bool = Query(
-        default=False,
-        description=(
-            "Demo-only: force enterprise-onboarding-error-demo into the rare "
-            "enterprise compliance branch."
-        ),
-    ),
     fail_compliance_handoff: bool = Query(
         default=False,
         description=(
-            "Demo-only: make enterprise-onboarding-error-demo fail at the fatal "
-            "compliance handoff step."
+            "Demo-only: guarantee enterprise-onboarding-error-demo reaches and fails "
+            "at the fatal compliance handoff step."
         ),
     ),
 ) -> RunResponse:
@@ -313,21 +292,11 @@ async def create_run(
         crash_during_hotel=crash_during_hotel,
     ):
         run_input = _arm_travel_crash_input(request.agent, run_input)
-    if (
-        _should_force_enterprise_compliance(
-            request.agent,
-            force_enterprise_compliance=force_enterprise_compliance,
-        )
-        or _should_fail_compliance_handoff(
-            request.agent,
-            fail_compliance_handoff=fail_compliance_handoff,
-        )
+    if _should_fail_compliance_handoff(
+        request.agent,
+        fail_compliance_handoff=fail_compliance_handoff,
     ):
-        run_input = _arm_enterprise_demo_input(
-            run_input,
-            force_enterprise_compliance=force_enterprise_compliance,
-            fail_compliance_handoff=fail_compliance_handoff,
-        )
+        run_input = _arm_enterprise_failure_input(run_input)
 
     handle = await agents.start(request.agent, run_input)
     return RunResponse(workflow_id=handle.workflow_id, agent=request.agent)

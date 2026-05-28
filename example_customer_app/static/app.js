@@ -14,8 +14,6 @@ const taskInput = document.querySelector("#task-input");
 const taskForm = document.querySelector("#task-form");
 const travelCrashControl = document.querySelector("#travel-crash-control");
 const travelCrashToggle = document.querySelector("#travel-crash-toggle");
-const enterpriseBranchControl = document.querySelector("#enterprise-branch-control");
-const enterpriseBranchToggle = document.querySelector("#enterprise-branch-toggle");
 const enterpriseHandoffFailureControl = document.querySelector("#enterprise-handoff-failure-control");
 const enterpriseHandoffFailureToggle = document.querySelector("#enterprise-handoff-failure-toggle");
 const submitButton = document.querySelector("#submit-button");
@@ -329,16 +327,13 @@ function selectAgent(agentName, replaceInput) {
   selectedDescription.textContent = agent.description;
   submitButton.disabled = false;
   const canCrashDuringHotel = agent.name === TRAVEL_AGENT_NAME;
-  const canForceEnterpriseBranch = agent.name === ENTERPRISE_ERROR_DEMO_AGENT_NAME;
+  const canFailEnterpriseHandoff = agent.name === ENTERPRISE_ERROR_DEMO_AGENT_NAME;
   travelCrashControl.hidden = !canCrashDuringHotel;
   travelCrashToggle.disabled = !canCrashDuringHotel;
-  enterpriseBranchControl.hidden = !canForceEnterpriseBranch;
-  enterpriseBranchToggle.disabled = !canForceEnterpriseBranch;
-  enterpriseHandoffFailureControl.hidden = !canForceEnterpriseBranch;
-  enterpriseHandoffFailureToggle.disabled = !canForceEnterpriseBranch;
+  enterpriseHandoffFailureControl.hidden = !canFailEnterpriseHandoff;
+  enterpriseHandoffFailureToggle.disabled = !canFailEnterpriseHandoff;
   if (!canCrashDuringHotel) travelCrashToggle.checked = false;
-  if (!canForceEnterpriseBranch) {
-    enterpriseBranchToggle.checked = false;
+  if (!canFailEnterpriseHandoff) {
     enterpriseHandoffFailureToggle.checked = false;
   }
 
@@ -402,12 +397,6 @@ taskForm.addEventListener("submit", async (event) => {
       state.selectedAgent.name === TRAVEL_AGENT_NAME && travelCrashToggle.checked;
     const query = new URLSearchParams();
     if (shouldCrashDuringHotel) query.set("crash_during_hotel", "true");
-    if (
-      state.selectedAgent.name === ENTERPRISE_ERROR_DEMO_AGENT_NAME &&
-      enterpriseBranchToggle.checked
-    ) {
-      query.set("force_enterprise_compliance", "true");
-    }
     if (
       state.selectedAgent.name === ENTERPRISE_ERROR_DEMO_AGENT_NAME &&
       enterpriseHandoffFailureToggle.checked
