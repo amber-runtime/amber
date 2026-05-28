@@ -13,7 +13,6 @@ from dbos_openai_agents import DBOSRunner
 class RegisteredAgent:
     name: str
     workflow: Callable[..., Any]
-    queued: bool = False
 
 
 _registered_agents: dict[str, RegisteredAgent] = {}
@@ -31,7 +30,6 @@ def register_agent(
     *,
     name: str,
     max_recovery_attempts: int | None = 5,
-    queued: bool = False,
 ):
     if not name:
         raise ValueError("Agent name must be a non-empty string.")
@@ -47,7 +45,6 @@ def register_agent(
         _registered_agents[name] = RegisteredAgent(
             name=name,
             workflow=workflow_fn,
-            queued=queued,
         )
         return workflow_fn
 

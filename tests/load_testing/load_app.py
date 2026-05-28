@@ -63,5 +63,5 @@ async def create_run(request: RunRequest = Body()) -> RunResponse:
             detail=f"Only {SYNTHETIC_AGENT_NAME!r} is supported by the load-test API.",
         )
 
-    handle = await agents.enqueue(request.agent, request.input)
+    handle = await agents.start(request.agent, request.input)
     return RunResponse(workflow_id=handle.workflow_id, agent=request.agent)

@@ -149,6 +149,15 @@ class DashboardClientTests(unittest.IsolatedAsyncioTestCase):
         build_records.assert_called_once_with(
             [{"function_id": 1, "error": None}],
             [{"event_type": "tool_call", "step_id": 1}],
+            {
+                "workflow_id": "wf-1",
+                "name": "agent",
+                "status": "SUCCESS",
+                "created_at": 1,
+                "updated_at": 2,
+                "output": None,
+                "recovery_attempts": None,
+            },
         )
 
     async def test_resume_workflow_returns_action_payload(self):
