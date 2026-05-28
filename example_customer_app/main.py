@@ -1,15 +1,17 @@
 """
 Customer app using our SDK
 
-Run:
+Run API:
   uv run uvicorn example_customer_app.main:app --port 8003
+
+Run worker in another terminal:
+  uv run python -m sdk.worker example_customer_app.main:agent_runtime
 """
 
-from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Body, FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -23,8 +25,7 @@ from .user_agents import (
     single_agent_demo,  # noqa: F401
 )
 from sdk import (
-    AgentService,
-    Runtime,
+    AgentRuntime,
     get_workflow,
     list_registered_agents,
 )
@@ -33,9 +34,6 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
-
-runtime = Runtime()
-agents = AgentService(runtime)
 
 
 class RunRequest(BaseModel):
@@ -48,12 +46,6 @@ class RunRequest(BaseModel):
         ]
     )
     input: str
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    runtime.start(listen_queues=[])
-    yield
 
 
 class RunResponse(BaseModel):
@@ -143,6 +135,7 @@ def _should_arm_travel_crash(agent: str, *, crash_during_hotel: bool) -> bool:
     return crash_during_hotel
 
 
+agent_runtime = AgentRuntime()
 def _arm_travel_crash_input(agent: str, run_input: str) -> str:
     if agent == TRAVEL_AGENT_NAME:
         return multi_agent_demo.request_hotel_crash_demo(run_input)
@@ -165,9 +158,9 @@ def _arm_enterprise_failure_input(run_input: str) -> str:
 
 
 app = FastAPI(
-    title="Customer App with Embedded Checkpoint SDK",
+    title="Customer App with Checkpoint SDK",
     version="0.1.0",
-    lifespan=lifespan,
+    lifespan=agent_runtime.api_lifespan(),
 )
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 app.add_middleware(
@@ -270,7 +263,7 @@ RUN_REQUEST_EXAMPLES = {
 
 @app.post("/runs", response_model=RunResponse)
 async def create_run(
-    request: RunRequest = Body(openapi_examples=RUN_REQUEST_EXAMPLES),
+    request: RunRequest,
     crash_during_hotel: bool = Query(
         default=False,
         description=(
@@ -298,5 +291,5 @@ async def create_run(
     ):
         run_input = _arm_enterprise_failure_input(run_input)
 
-    handle = await agents.start(request.agent, run_input)
+    handle = await agent_runtime.agents.start(request.agent, run_input)
     return RunResponse(workflow_id=handle.workflow_id, agent=request.agent)
