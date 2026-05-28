@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import {
   Brain,
   Clock,
+  GitFork,
+  Loader2,
   Search,
   Wrench,
   CheckCircle2,
@@ -17,6 +19,8 @@ import {
   stepDurationMs,
   stepStartedAtMs,
 } from '../../../../lib/stepHelpers'
+import { forkWorkflow } from '../../../../lib/api'
+import { showToast } from '../../../../shared/Toast'
 import { Section } from './Section'
 import { JsonBlock } from './JsonBlock'
 import { LLMMessagesBlock } from './LLMMessagesBlock'
@@ -24,7 +28,9 @@ import { OutputRenderer } from './OutputRenderer'
 import { DefList } from './DefList'
 
 interface Props {
+  workflowId: string
   step: Step
+  onForkSuccess?: (forkedWorkflowId: string) => void
 }
 
 type StepKind = ReturnType<typeof getStepKind>
@@ -68,8 +74,9 @@ function SectionLabel({ children }: { children: string }) {
   )
 }
 
-export function StepDetailPanel({ step }: Props) {
+export function StepDetailPanel({ workflowId, step, onForkSuccess }: Props) {
   const [now, setNow] = useState(Date.now())
+  const [forkPending, setForkPending] = useState(false)
   const kind = getStepKind(step)
   const humanName = step.event_type === 'tool_call'
     ? humanizeStepName(step.tool_name ?? step.function_name)
@@ -100,6 +107,23 @@ export function StepDetailPanel({ step }: Props) {
   const llmHasIO = kind === 'llm' && (step.llm_input != null || step.llm_output != null)
   const llmHasTokens =
     kind === 'llm' && (step.tokens_in != null || step.tokens_out != null)
+  const canFork = step.step_id != null
+
+  const handleFork = async () => {
+    if (step.step_id == null || forkPending) return
+    setForkPending(true)
+    try {
+      const result = await forkWorkflow(workflowId, step.step_id)
+      onForkSuccess?.(result.forkedWorkflowId)
+    } catch (err) {
+      showToast(
+        'Fork failed',
+        err instanceof Error ? err.message : 'Unknown error',
+      )
+    } finally {
+      setForkPending(false)
+    }
+  }
 
   return (
     <div>
@@ -117,6 +141,22 @@ export function StepDetailPanel({ step }: Props) {
           {step.function_name && step.function_name !== humanName && (
             <span className="truncate">{step.function_name}</span>
           )}
+        </div>
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={() => void handleFork()}
+            disabled={!canFork || forkPending}
+            title={canFork ? 'Fork from this step' : 'Fork requires a step ID'}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+              !canFork || forkPending
+                ? 'border-slate-800 text-slate-600 bg-slate-900 cursor-not-allowed opacity-60'
+                : 'border-slate-700 text-slate-200 bg-slate-800 hover:bg-slate-700'
+            }`}
+          >
+            {forkPending ? <Loader2 size={13} className="animate-spin" /> : <GitFork size={13} />}
+            Fork from here
+          </button>
         </div>
       </div>
 

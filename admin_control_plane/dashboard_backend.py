@@ -140,6 +140,10 @@ class QueuedWorkflowListPage(BaseModel):
     has_more: bool
 
 
+class ForkWorkflowRequest(BaseModel):
+    start_step: int
+
+
 @app.get("/workflows", response_model=WorkflowListPage)
 async def get_workflows(
     status: Optional[str] = Query(
@@ -227,6 +231,13 @@ async def resume_workflow(workflow_id: str):
 @app.post("/workflows/{workflow_id}/cancel")
 async def cancel_workflow(workflow_id: str):
     return await get_dashboard_client().cancel_workflow(workflow_id)
+
+
+@app.post("/workflows/{workflow_id}/fork")
+async def fork_workflow(workflow_id: str, request: ForkWorkflowRequest):
+    if request.start_step < 1:
+        raise HTTPException(status_code=422, detail="start_step must be >= 1")
+    return await get_dashboard_client().fork_workflow(workflow_id, request.start_step)
 
 
 def _pricing_is_fresh(db_url: str) -> bool:

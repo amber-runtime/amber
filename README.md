@@ -11,7 +11,7 @@ Setup
   uv run tests/research_agent.py "your topic here"
 
   Start the backend
-  uv run uvicorn dashboard.dashboard_backend:app --reload --port 8001
+  uv run uvicorn admin_control_plane.dashboard_backend:app --reload --port 8001
 
 Test
    Open http://localhost:8001/docs

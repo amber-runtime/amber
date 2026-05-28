@@ -68,6 +68,30 @@ export async function cancelWorkflow(workflowId: string): Promise<void> {
   await handleResponse<unknown>(res)
 }
 
+export async function forkWorkflow(
+  workflowId: string,
+  startStep: number,
+): Promise<{ workflowId: string; forkedWorkflowId: string; startStep: number }> {
+  const res = await fetch(
+    `${API_BASE}/workflows/${encodeURIComponent(workflowId)}/fork`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ start_step: startStep }),
+    },
+  )
+  const raw = await handleResponse<{
+    workflow_id: string
+    forked_workflow_id: string
+    start_step: number
+  }>(res)
+  return {
+    workflowId: raw.workflow_id,
+    forkedWorkflowId: raw.forked_workflow_id,
+    startStep: raw.start_step,
+  }
+}
+
 export async function fetchPricing(): Promise<PricingResponse> {
   const res = await fetch(`${API_BASE}/pricing`)
   return handleResponse<PricingResponse>(res)
