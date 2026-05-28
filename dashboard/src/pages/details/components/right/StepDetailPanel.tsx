@@ -189,7 +189,13 @@ export function StepDetailPanel({ step }: Props) {
                 <OutputRenderer value={step.tool_result} />
               </div>
             )}
-            {step.tool_args == null && step.tool_result == null && (
+            {step.tool_result == null && step.step_output != null && (
+              <div>
+                <SectionLabel>Result</SectionLabel>
+                <OutputRenderer value={step.step_output} />
+              </div>
+            )}
+            {step.tool_args == null && step.tool_result == null && step.step_output == null && (
               <p className="text-sm text-slate-500 italic">Tool output not available.</p>
             )}
           </div>
