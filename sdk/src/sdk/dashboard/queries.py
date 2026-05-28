@@ -232,6 +232,7 @@ def build_step_records(
                 "function_name": fn_name,
                 "event_type": event_type,
                 "status": "SUCCESS" if step.get("error") is None else "ERROR",
+                "error_message": None if step.get("error") is None else str(step.get("error")),
                 "duration_ms": duration_ms,
                 "started_at_epoch_ms": started_at_epoch_ms,
                 "completed_at_epoch_ms": completed_at_epoch_ms,

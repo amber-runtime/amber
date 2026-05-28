@@ -8,6 +8,7 @@ import {
   formatRelativeTime,
   formatDuration,
   shortWorkflowId,
+  deriveWorkflowDisplayStatus,
 } from '../../lib/stepHelpers'
 import { PageHeader } from '../../shared/PageHeader'
 import { StatusBadge, RetriedPill } from '../../shared/workflowStatus'
@@ -92,11 +93,20 @@ function workflowDuration(w: WorkflowSummary, now: number): string {
 
 export function WorkflowListPage() {
   const navigate = useNavigate()
-  const { workflows, loading, loadingMore, hasMore, error, refresh, loadMore } = useWorkflows()
+  const { workflows, workflowDetails, loading, loadingMore, hasMore, error, refresh, loadMore } = useWorkflows()
   const [filter, setFilter] = useState<Filter>('all')
   const [dateFilter, setDateFilter] = useState<DateFilter>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [now, setNow] = useState(Date.now())
+  const displayStatusByWorkflowId = new Map(
+    workflows.map((workflow) => [
+      workflow.workflow_id,
+      deriveWorkflowDisplayStatus(
+        workflow,
+        workflowDetails[workflow.workflow_id]?.steps ?? [],
+      ),
+    ]),
+  )
 
   // Tick every second when any workflow is PENDING so durations update live
   useEffect(() => {
@@ -114,9 +124,9 @@ export function WorkflowListPage() {
 
   const counts = {
     all: preStatusFiltered.length,
-    completed: preStatusFiltered.filter((w) => w.status === 'SUCCESS').length,
-    running: preStatusFiltered.filter((w) => w.status === 'PENDING').length,
-    errored: preStatusFiltered.filter((w) => w.status === 'ERROR').length,
+    completed: preStatusFiltered.filter((w) => displayStatusByWorkflowId.get(w.workflow_id) === 'SUCCESS').length,
+    running: preStatusFiltered.filter((w) => displayStatusByWorkflowId.get(w.workflow_id) === 'PENDING').length,
+    errored: preStatusFiltered.filter((w) => displayStatusByWorkflowId.get(w.workflow_id) === 'ERROR').length,
   }
 
   const FILTER_LABELS: Record<Filter, string> = {
@@ -128,7 +138,7 @@ export function WorkflowListPage() {
 
   const filtered = preStatusFiltered.filter((w) => {
     const target = FILTER_STATUS[filter]
-    return target === null || w.status === target
+    return target === null || displayStatusByWorkflowId.get(w.workflow_id) === target
   })
 
   return (
@@ -253,37 +263,40 @@ export function WorkflowListPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((w) => (
-                    <tr
-                      key={w.workflow_id}
-                      onClick={() => navigate(`/workflows/${w.workflow_id}`)}
-                      className="border-b last:border-b-0 border-slate-800 hover:bg-slate-800/50 cursor-pointer transition-colors"
-                    >
-                      <td className="pl-4 pr-2 py-3.5">
-                        <StatusIcon status={w.status} />
-                      </td>
-                      <td className="pr-4 py-3.5 max-w-xs">
-                        <p className="text-sm font-medium text-slate-50 truncate">
-                          {humanizeWorkflowName(w.name)}
-                        </p>
-                        <span className="text-xs font-mono text-slate-500">
-                          {shortWorkflowId(w.workflow_id)}
-                        </span>
-                      </td>
-                      <td className="pr-4 py-3.5 text-xs text-slate-300 whitespace-nowrap text-right">
-                        {formatRelativeTime(w.created_at)}
-                      </td>
-                      <td className="pr-4 py-3.5 text-xs font-mono text-slate-300 text-right whitespace-nowrap">
-                        {workflowDuration(w, now)}
-                      </td>
-                      <td className="pr-4 py-3.5 text-right">
-                        <StatusBadge status={w.status} />
-                      </td>
-                      <td className="pr-4 py-3.5 text-right">
-                        <RetriedPill attempts={w.attempts} />
-                      </td>
-                    </tr>
-                  ))}
+                  {filtered.map((w) => {
+                    const displayStatus = displayStatusByWorkflowId.get(w.workflow_id) ?? w.status
+                    return (
+                      <tr
+                        key={w.workflow_id}
+                        onClick={() => navigate(`/workflows/${w.workflow_id}`)}
+                        className="border-b last:border-b-0 border-slate-800 hover:bg-slate-800/50 cursor-pointer transition-colors"
+                      >
+                        <td className="pl-4 pr-2 py-3.5">
+                          <StatusIcon status={displayStatus} />
+                        </td>
+                        <td className="pr-4 py-3.5 max-w-xs">
+                          <p className="text-sm font-medium text-slate-50 truncate">
+                            {humanizeWorkflowName(w.name)}
+                          </p>
+                          <span className="text-xs font-mono text-slate-500">
+                            {shortWorkflowId(w.workflow_id)}
+                          </span>
+                        </td>
+                        <td className="pr-4 py-3.5 text-xs text-slate-300 whitespace-nowrap text-right">
+                          {formatRelativeTime(w.created_at)}
+                        </td>
+                        <td className="pr-4 py-3.5 text-xs font-mono text-slate-300 text-right whitespace-nowrap">
+                          {workflowDuration(w, now)}
+                        </td>
+                        <td className="pr-4 py-3.5 text-right">
+                          <StatusBadge status={displayStatus} />
+                        </td>
+                        <td className="pr-4 py-3.5 text-right">
+                          <RetriedPill attempts={w.attempts} />
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             )}

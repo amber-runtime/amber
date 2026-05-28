@@ -22,6 +22,7 @@ import { CopyButton } from './right/CopyButton'
 interface Props {
   workflow: WorkflowInfo
   steps: Step[]
+  displayStatus: WorkflowInfo['status']
   onActionSuccess?: () => void
 }
 
@@ -142,7 +143,7 @@ function ActionButton({
   )
 }
 
-export function WorkflowHeader({ workflow, steps, onActionSuccess }: Props) {
+export function WorkflowHeader({ workflow, steps, displayStatus, onActionSuccess }: Props) {
   const [pending, setPending] = useState<'resume' | 'cancel' | null>(null)
 
   const totalDuration =
@@ -199,7 +200,7 @@ export function WorkflowHeader({ workflow, steps, onActionSuccess }: Props) {
         <h1 className="text-xl font-semibold text-slate-50 tracking-tight">
           {humanizeWorkflowName(workflow.name)}
         </h1>
-        <StatusBadge status={workflow.status} />
+        <StatusBadge status={displayStatus} />
         <span className="flex items-center font-mono text-xs text-slate-400">
           {workflow.workflow_id}
           <CopyButton text={workflow.workflow_id} label="Copy workflow ID" />

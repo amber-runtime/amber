@@ -14,6 +14,8 @@ const taskInput = document.querySelector("#task-input");
 const taskForm = document.querySelector("#task-form");
 const travelCrashControl = document.querySelector("#travel-crash-control");
 const travelCrashToggle = document.querySelector("#travel-crash-toggle");
+const enterpriseHandoffFailureControl = document.querySelector("#enterprise-handoff-failure-control");
+const enterpriseHandoffFailureToggle = document.querySelector("#enterprise-handoff-failure-toggle");
 const submitButton = document.querySelector("#submit-button");
 const requestList = document.querySelector("#request-list");
 const requestCount = document.querySelector("#request-count");
@@ -33,6 +35,7 @@ const MAX_VISIBLE_REQUESTS = 25;
 const PENDING_REQUEST_KEY = "operationsResearchHub.pendingRequest";
 const PENDING_REQUESTS_KEY = "operationsResearchHub.pendingRequests";
 const TRAVEL_AGENT_NAME = "travel-concierge";
+const ENTERPRISE_ERROR_DEMO_AGENT_NAME = "enterprise-onboarding-error-demo";
 
 function setError(message) {
   if (!message) {
@@ -324,9 +327,15 @@ function selectAgent(agentName, replaceInput) {
   selectedDescription.textContent = agent.description;
   submitButton.disabled = false;
   const canCrashDuringHotel = agent.name === TRAVEL_AGENT_NAME;
+  const canFailEnterpriseHandoff = agent.name === ENTERPRISE_ERROR_DEMO_AGENT_NAME;
   travelCrashControl.hidden = !canCrashDuringHotel;
   travelCrashToggle.disabled = !canCrashDuringHotel;
+  enterpriseHandoffFailureControl.hidden = !canFailEnterpriseHandoff;
+  enterpriseHandoffFailureToggle.disabled = !canFailEnterpriseHandoff;
   if (!canCrashDuringHotel) travelCrashToggle.checked = false;
+  if (!canFailEnterpriseHandoff) {
+    enterpriseHandoffFailureToggle.checked = false;
+  }
 
   if (replaceInput || !taskInput.value.trim()) {
     taskInput.value = agent.sample_input || "";
@@ -386,7 +395,15 @@ taskForm.addEventListener("submit", async (event) => {
   try {
     const shouldCrashDuringHotel =
       state.selectedAgent.name === TRAVEL_AGENT_NAME && travelCrashToggle.checked;
-    const runsUrl = shouldCrashDuringHotel ? "/runs?crash_during_hotel=true" : "/runs";
+    const query = new URLSearchParams();
+    if (shouldCrashDuringHotel) query.set("crash_during_hotel", "true");
+    if (
+      state.selectedAgent.name === ENTERPRISE_ERROR_DEMO_AGENT_NAME &&
+      enterpriseHandoffFailureToggle.checked
+    ) {
+      query.set("fail_compliance_handoff", "true");
+    }
+    const runsUrl = query.size > 0 ? `/runs?${query.toString()}` : "/runs";
     const response = await fetch(runsUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

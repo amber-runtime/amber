@@ -27,6 +27,7 @@ class StepRecord(BaseModel):
     function_name: Optional[str]
     event_type: str
     status: str
+    error_message: Optional[str] = None
     duration_ms: Optional[int]
     started_at_epoch_ms: Optional[int] = None
     completed_at_epoch_ms: Optional[int] = None

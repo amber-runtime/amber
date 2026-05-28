@@ -454,9 +454,14 @@ def install_agents_stubs():
             self.tools = kwargs.get("tools", [])
             self.handoffs = kwargs.get("handoffs", [])
 
-    def function_tool(fn):
-        fn._is_function_tool = True
-        return fn
+    def function_tool(fn=None, **_kwargs):
+        def decorator(target):
+            target._is_function_tool = True
+            return target
+
+        if fn is None:
+            return decorator
+        return decorator(fn)
 
     class DDGS:
         def __enter__(self):
@@ -1292,6 +1297,96 @@ class DemoRegistrationTests(unittest.TestCase):
         )
         self.assertNotIn("RANDOM_TRAVEL_CRASH_RATE", source)
         self.assertNotIn("random.random", source)
+
+    def test_enterprise_branch_is_deterministic_from_account_signals(self):
+        demo = load_module(
+            "enterprise_onboarding_branch_under_test",
+            "example_customer_app/user_agents/error_agent_demo.py",
+        )
+
+        standard = demo.normalize_onboarding_request(
+            "Prepare onboarding notes for Acorn Software with 220 seats in the US."
+        )
+        enterprise = demo.normalize_onboarding_request(
+            "Prepare onboarding notes for Northstar Health, an enterprise customer "
+            "with 1800 seats across the US and EU. Procurement review required."
+        )
+
+        self.assertEqual(
+            demo.determine_workflow_branch(standard, force_enterprise_branch=False),
+            "standard_onboarding",
+        )
+        self.assertEqual(
+            demo.determine_workflow_branch(enterprise, force_enterprise_branch=False),
+            "enterprise_compliance",
+        )
+        self.assertEqual(
+            demo.determine_workflow_branch(standard, force_enterprise_branch=True),
+            "enterprise_compliance",
+        )
+
+    def test_enterprise_demo_helpers_append_and_strip_directives(self):
+        demo = load_module(
+            "enterprise_onboarding_directives_under_test",
+            "example_customer_app/user_agents/error_agent_demo.py",
+        )
+
+        armed = demo.enable_enterprise_failure_demo("Start onboarding for Northstar Health")
+        cleaned, force_branch, fail_handoff = demo._extract_demo_directives(armed)
+
+        self.assertEqual(cleaned, "Start onboarding for Northstar Health")
+        self.assertTrue(force_branch)
+        self.assertTrue(fail_handoff)
+
+    def test_enterprise_failure_is_only_armed_by_explicit_toggle(self):
+        source_path = ROOT / "example_customer_app" / "main.py"
+        source = source_path.read_text(encoding="utf-8")
+        module = ast.parse(source)
+        helpers = {
+            node.name: node
+            for node in module.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name
+            in {"_should_fail_compliance_handoff", "_arm_enterprise_failure_input"}
+        }
+        namespace: dict[str, object] = {}
+        error_agent_demo_stub = types.SimpleNamespace(
+            enable_enterprise_compliance_branch=lambda value: f"{value}\n[force]",
+            enable_compliance_handoff_failure=lambda value: f"{value}\n[fail]",
+        )
+        namespace["error_agent_demo"] = error_agent_demo_stub
+        exec(
+            compile(
+                ast.Module(
+                    [
+                        helpers["_should_fail_compliance_handoff"],
+                        helpers["_arm_enterprise_failure_input"],
+                    ],
+                    [],
+                ),
+                str(source_path),
+                "exec",
+            ),
+            namespace,
+        )
+
+        self.assertFalse(
+            namespace["_should_fail_compliance_handoff"](
+                "research-assistant",
+                fail_compliance_handoff=True,
+            )
+        )
+        self.assertTrue(
+            namespace["_should_fail_compliance_handoff"](
+                "enterprise-onboarding-error-demo",
+                fail_compliance_handoff=True,
+            )
+        )
+        self.assertEqual(
+            namespace["_arm_enterprise_failure_input"]("demo request"),
+            "demo request\n[force]\n[fail]",
+        )
+        self.assertNotIn("force_enterprise_compliance:", source)
 
     def test_hotel_crash_marker_prevents_repeated_crashes(self):
         demo = load_module(
