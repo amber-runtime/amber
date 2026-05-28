@@ -1,15 +1,17 @@
 """
 Customer app using our SDK
 
-Run:
+Run API:
   uv run uvicorn example_customer_app.main:app --port 8003
+
+Run worker in another terminal:
+  uv run python -m sdk.worker example_customer_app.main:agent_runtime
 """
 
-from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Body, FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -18,12 +20,12 @@ from pydantic import BaseModel, Field
 # Import agent modules so their @register_agent workflows are registered.
 from .user_agents import (
     multi_agent_demo,
+    error_agent_demo,
     queued_multi_agent_demo,
     single_agent_demo,  # noqa: F401
 )
 from sdk import (
-    AgentService,
-    Runtime,
+    AgentRuntime,
     get_workflow,
     list_registered_agents,
 )
@@ -33,9 +35,6 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
-runtime = Runtime()
-agents = AgentService(runtime)
-
 
 class RunRequest(BaseModel):
     agent: str = Field(
@@ -43,15 +42,10 @@ class RunRequest(BaseModel):
             "research-assistant",
             "travel-concierge",
             "research-handoff-agent",
+            "enterprise-onboarding-error-demo",
         ]
     )
     input: str
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    runtime.start(listen_queues=[])
-    yield
 
 
 class RunResponse(BaseModel):
@@ -96,7 +90,21 @@ KNOWN_AGENT_CAPABILITIES = {
             "departing 2026-07-10 and returning 2026-07-13, budget $3000."
         ),
     },
+    "enterprise-onboarding-error-demo": {
+        "display_name": "Enterprise Onboarding Error Demo",
+        "description": (
+            "A multi-agent onboarding workflow that can take a rare compliance branch "
+            "and fail at a fatal external handoff step."
+        ),
+        "category": "Ops Demo",
+        "sample_input": (
+            "Prepare an onboarding plan for Northstar Health, an enterprise customer "
+            "with 1800 seats across the US and EU. Procurement review and compliance "
+            "approval are required before production rollout."
+        ),
+    },
 }
+TRAVEL_AGENT_NAME = "travel-concierge"
 
 
 def _humanize_agent_name(name: str) -> str:
@@ -127,10 +135,32 @@ def _should_arm_travel_crash(agent: str, *, crash_during_hotel: bool) -> bool:
     return crash_during_hotel
 
 
+agent_runtime = AgentRuntime()
+def _arm_travel_crash_input(agent: str, run_input: str) -> str:
+    if agent == TRAVEL_AGENT_NAME:
+        return multi_agent_demo.request_hotel_crash_demo(run_input)
+    return run_input
+
+
+def _should_fail_compliance_handoff(
+    agent: str,
+    *,
+    fail_compliance_handoff: bool,
+) -> bool:
+    return agent == "enterprise-onboarding-error-demo" and fail_compliance_handoff
+
+
+def _arm_enterprise_failure_input(run_input: str) -> str:
+    # The failure toggle should guarantee this exact fatal path regardless of prompt wording.
+    run_input = error_agent_demo.enable_enterprise_compliance_branch(run_input)
+    run_input = error_agent_demo.enable_compliance_handoff_failure(run_input)
+    return run_input
+
+
 app = FastAPI(
-    title="Customer App with Embedded Checkpoint SDK",
+    title="Customer App with Checkpoint SDK",
     version="0.1.0",
-    lifespan=lifespan,
+    lifespan=agent_runtime.api_lifespan(),
 )
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 app.add_middleware(
@@ -149,8 +179,8 @@ async def index(request: Request):
         {
             "title": "Operations Research Hub",
             "subtitle": (
-                "Research vendors, prepare decision memos, and plan business travel "
-                "from one AI workspace."
+                "Research vendors, prepare decision memos, plan business travel, and "
+                "demo durable enterprise onboarding recovery from one AI workspace."
             ),
         },
     )
@@ -213,17 +243,39 @@ RUN_REQUEST_EXAMPLES = {
             ),
         },
     },
+    "enterprise_onboarding_error_demo": {
+        "summary": "Enterprise onboarding error demo",
+        "description": (
+            "Run the rare-branch enterprise onboarding workflow with an optional fatal "
+            "compliance handoff failure."
+        ),
+        "value": {
+            "agent": "enterprise-onboarding-error-demo",
+            "input": (
+                "Prepare an onboarding plan for Northstar Health, an enterprise customer "
+                "with 1800 seats across the US and EU. Procurement review and compliance "
+                "approval are required before production rollout."
+            ),
+        },
+    },
 }
 
 
 @app.post("/runs", response_model=RunResponse)
 async def create_run(
-    request: RunRequest = Body(openapi_examples=RUN_REQUEST_EXAMPLES),
+    request: RunRequest,
     crash_during_hotel: bool = Query(
         default=False,
         description=(
             "Demo-only: intentionally terminate the process once during "
             "travel-concierge hotel quote lookup."
+        ),
+    ),
+    fail_compliance_handoff: bool = Query(
+        default=False,
+        description=(
+            "Demo-only: guarantee enterprise-onboarding-error-demo reaches and fails "
+            "at the fatal compliance handoff step."
         ),
     ),
 ) -> RunResponse:
@@ -232,7 +284,12 @@ async def create_run(
         request.agent,
         crash_during_hotel=crash_during_hotel,
     ):
-        run_input = multi_agent_demo.request_hotel_crash_demo(run_input)
+        run_input = _arm_travel_crash_input(request.agent, run_input)
+    if _should_fail_compliance_handoff(
+        request.agent,
+        fail_compliance_handoff=fail_compliance_handoff,
+    ):
+        run_input = _arm_enterprise_failure_input(run_input)
 
-    handle = await agents.start(request.agent, run_input)
+    handle = await agent_runtime.agents.start(request.agent, run_input)
     return RunResponse(workflow_id=handle.workflow_id, agent=request.agent)

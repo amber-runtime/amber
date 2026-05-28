@@ -134,13 +134,21 @@ export function StepDetailPanel({ step }: Props) {
         </Section>
       )}
 
-      {/* Error — only when present (no error message field shipped by backend yet) */}
+      {/* Error — only when present */}
       {hasError && (
         <Section title="Error" defaultExpanded>
-          <p className="text-xs text-red-300">
-            This step failed. The backend does not yet expose the error message —
-            check the workflow status page for diagnostics.
-          </p>
+          {step.error_message ? (
+            <OutputRenderer
+              value={step.error_message}
+              maxHeight="max-h-40"
+              textClassName="text-red-300"
+            />
+          ) : (
+            <p className="text-xs text-red-300">
+              This step failed. The backend does not yet expose the error message —
+              check the workflow status page for diagnostics.
+            </p>
+          )}
         </Section>
       )}
 

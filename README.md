@@ -28,7 +28,7 @@ playground/
 │   └── src/sdk/
 │       ├── __init__.py
 │       ├── decorators.py   # workflow, step, sleep, register_agent
-│       ├── runtime.py      # Runtime, AgentService, WorkerService
+│       ├── runtime.py      # AgentRuntime, Runtime, AgentService, WorkerService
 │       └── dashboard/      # dashboard backend helpers
 ├── tests/        # test scripts that use the SDK
 └── deprecated/   # prior reference implementations (Inngest, raw DBOS)
@@ -90,74 +90,55 @@ The SDK lives in `sdk/src/sdk/`. Since it's installed as an editable package, yo
 **Current public API:**
 
 ```python
-from sdk import Runtime, AgentService, WorkerService, workflow, step, sleep, agent_runner
+from sdk import AgentRuntime, register_agent, workflow, step, sleep, agent_runner
 ```
 
 | Function | What it does |
 |---|---|
+| `AgentRuntime` | Configure the API runtime, queue settings, and worker startup for registered agents |
+| `@register_agent(name=...)` | Register a durable agent workflow; normal starts are queued by default |
 | `@workflow()` | Mark a function as a durable workflow |
 | `@step()` | Mark a function as a checkpointed step |
 | `sleep(seconds)` | Durable sleep — skips elapsed time on crash recovery |
 | `agent_runner(agent, prompt)` | Run an OpenAI Agents SDK agent through DBOS |
-| `Runtime.start()` | Configure and launch DBOS once for the current process |
-| `AgentService.run(agent_name, input)` | Start a registered orchestration workflow immediately |
-| `AgentService.enqueue(agent_name, input)` | Submit a registered orchestration workflow to the default DBOS queue |
-| `WorkerService.run()` | Launch a queue worker for registered orchestration workflows |
 
 Agent workflows are registered when their modules are imported. In an app,
 import the modules that define `@register_agent` workflows during startup.
 
-## Queueing Agents
+## Queue-First Agents
 
-Use `AgentService.run(...)` when the API process should start work immediately.
-Use `AgentService.enqueue(...)` when the API should return quickly and let a
-worker process drain queued work. In a split deployment, initialize the API
-runtime with `listen_queues=[]` so it can enqueue work without draining user
-queues. `AgentService.enqueue(...)` lazily ensures the queue exists so app/API
-processes can submit background work before any worker has started. Queue
-configuration is still owned by the worker runtime; enqueue submission does not
-require an active worker, but queued work will not execute until a worker
-runtime is running and listening on the queue.
-
-API-side enqueue:
+Registered agents are queued by default. The API process submits work and returns
+quickly; a worker process drains the DBOS queue and executes workflows. Use a
+single `AgentRuntime` object in the app module so the API and worker roles share
+the same queue configuration.
 
 ```python
-from sdk import AgentService, Runtime
+from fastapi import FastAPI
+from sdk import AgentRuntime
 
-runtime = Runtime()
-runtime.start(listen_queues=[])
-agents = AgentService(runtime)
+from .user_agents import research_agent, travel_concierge
 
-handle = await agents.enqueue("research-handoff-agent", user_input)
+agent_runtime = AgentRuntime(
+    queue_name="agent-runs",
+    worker_concurrency=4,
+    queue_concurrency=None,
+)
+
+app = FastAPI(lifespan=agent_runtime.api_lifespan())
+agents = agent_runtime.agents
+
+handle = await agents.start("research-handoff-agent", user_input)
 return {"workflow_id": handle.workflow_id}
 ```
 
-Worker-side template:
+The API process launches DBOS with queue listeners disabled. The worker process
+loads the same `AgentRuntime` object and listens to `agent-runs`.
 
-```python
-from sdk import Runtime, WorkerService
-
-worker = WorkerService(
-    runtime=Runtime(),
-    agent_modules=[
-        "my_app.agents.single_agent_demo",
-        "my_app.agents.multi_agent_demo",
-        "my_app.agents.queued_multi_agent_demo",
-    ],
-    queue_name="agent-runs",
-    worker_concurrency=1,
-)
-worker.run()
-```
-
-In split deployments, the API and worker should import the same registered
-workflow modules so DBOS computes the same application version. Queue listening
-still controls what the worker drains: the worker only listens to `agent-runs`.
-
-`worker_concurrency` limits how many queued workflows each worker process runs at
-once. The optional `concurrency` argument sets a global queue cap across all
-workers. Worker count itself is deployment-owned: for ECS/Fargate, Terraform or
-Application Auto Scaling controls how many worker tasks are running.
+`worker_concurrency` limits how many workflows each worker process runs at once.
+It defaults to `4`. `queue_concurrency` is optional and unset by default; set it
+when you need a global cap across all workers. Worker count itself is
+deployment-owned: for ECS/Fargate, Terraform or Application Auto Scaling
+controls how many worker tasks are running.
 
 Effective parallelism is:
 
@@ -176,7 +157,7 @@ uv run uvicorn example_customer_app.main:app --port 8003
 Start the queue worker in another terminal:
 
 ```bash
-uv run python -m example_customer_app.worker
+uv run python -m sdk.worker example_customer_app.main:agent_runtime
 ```
 
 The API process launches DBOS with user queue listeners disabled. The worker
@@ -216,7 +197,7 @@ For repeatable local queue load testing with k6 and a DBOS drain reporter, see
 The SDK does not create AWS infrastructure. The deployment contract is:
 
 - API service runs the FastAPI app, for example `uvicorn example_customer_app.main:app`.
-- Worker service runs `python -m example_customer_app.worker`.
+- Worker service runs `python -m sdk.worker example_customer_app.main:agent_runtime`.
 - API and worker use the same code image/version.
 - API and worker use the same `DBOS_SYSTEM_DATABASE_URL` or `DB_URL`.
 - API and worker import the same registered workflow modules so DBOS application versions match.

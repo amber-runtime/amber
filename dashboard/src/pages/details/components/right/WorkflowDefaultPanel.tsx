@@ -14,6 +14,7 @@ import { FinalAnswerCard } from '../FinalAnswerCard'
 interface Props {
   workflow: WorkflowInfo
   steps: Step[]
+  displayStatus: WorkflowStatus
 }
 
 const STATUS_STYLES: Record<WorkflowStatus, string> = {
@@ -109,10 +110,10 @@ function PricingSyncedAt({ syncedAt }: { syncedAt: number | null }) {
   )
 }
 
-export function WorkflowDefaultPanel({ workflow, steps }: Props) {
+export function WorkflowDefaultPanel({ workflow, steps, displayStatus }: Props) {
   const inputAvailable = false   // backend-blocked; field doesn't exist on WorkflowInfo yet
   const finalAnswerExpandedByDefault =
-    workflow.status === 'SUCCESS' && workflow.output != null
+    displayStatus === 'SUCCESS' && workflow.output != null
   const attempts = workflow.attempts
   const agents = countAgents(steps)
   const models = uniqueModels(steps)
@@ -128,7 +129,7 @@ export function WorkflowDefaultPanel({ workflow, steps }: Props) {
     ],
     ['Created', formatTimestamp(workflow.created_at)],
     ['Updated', formatTimestamp(workflow.updated_at)],
-    ['Status', <StatusBadge key="status" status={workflow.status} />],
+    ['Status', <StatusBadge key="status" status={displayStatus} />],
     ...(attempts != null && attempts > 0
       ? ([['Attempts', String(attempts)]] as Array<[string, React.ReactNode]>)
       : []),
@@ -153,7 +154,7 @@ export function WorkflowDefaultPanel({ workflow, steps }: Props) {
           <h2 className="text-sm font-semibold text-slate-100 truncate flex-1">
             {humanizeWorkflowName(workflow.name)}
           </h2>
-          <StatusBadge status={workflow.status} />
+          <StatusBadge status={displayStatus} />
         </div>
       </div>
 
@@ -166,7 +167,7 @@ export function WorkflowDefaultPanel({ workflow, steps }: Props) {
 
       {/* Final Answer */}
       <Section title="Final Answer" defaultExpanded={finalAnswerExpandedByDefault}>
-        <FinalAnswerBody status={workflow.status} output={workflow.output} />
+        <FinalAnswerBody status={displayStatus} output={workflow.output} />
       </Section>
 
       {/* Metadata */}

@@ -5,6 +5,7 @@ export interface Step {
   function_name: string | null
   event_type: string
   status: 'SUCCESS' | 'ERROR'
+  error_message?: string | null
   duration_ms: number | null
   started_at_epoch_ms: number | null
   completed_at_epoch_ms: number | null

@@ -4,6 +4,7 @@ import { AlertCircle, ArrowLeft, RefreshCw } from 'lucide-react'
 import { useWorkflows } from '../../lib/workflowContext'
 import { fetchWorkflowDetail } from '../../lib/api'
 import type { SelectedStepId } from '../../lib/types'
+import { deriveWorkflowDisplayStatus } from '../../lib/stepHelpers'
 import { WorkflowHeader } from './components/WorkflowHeader'
 import { StepList } from './components/StepList'
 import { StepDetailPanel } from './components/right/StepDetailPanel'
@@ -122,6 +123,8 @@ export function WorkflowDetailPage() {
     )
   }
 
+  const displayStatus = deriveWorkflowDisplayStatus(data.workflow, data.steps)
+
   return (
     <div className="min-h-screen bg-slate-950">
       <BackNav />
@@ -141,6 +144,7 @@ export function WorkflowDetailPage() {
       <WorkflowHeader
         workflow={data.workflow}
         steps={data.steps}
+        displayStatus={displayStatus}
         onActionSuccess={loadDetail}
       />
 
@@ -175,7 +179,11 @@ export function WorkflowDetailPage() {
                 {selectedStep != null ? (
                   <StepDetailPanel step={selectedStep} />
                 ) : (
-                  <WorkflowDefaultPanel workflow={data.workflow} steps={data.steps} />
+                  <WorkflowDefaultPanel
+                    workflow={data.workflow}
+                    steps={data.steps}
+                    displayStatus={displayStatus}
+                  />
                 )}
               </aside>
             </div>

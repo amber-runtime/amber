@@ -1,4 +1,4 @@
-import type { Step, AgentGroup, WorkflowInfo, ModelPricing } from './types'
+import type { Step, AgentGroup, WorkflowInfo, WorkflowStatus, ModelPricing } from './types'
 import { getPricing } from './pricingStore'
 
 export type StepKind = 'llm' | 'tool' | 'sleep' | 'other'
@@ -37,6 +37,16 @@ export function getStepKind(step: Step): StepKind {
   if (step.event_type === 'tool_call') return 'tool'
   if (step.function_name === 'DBOS.sleep') return 'sleep'
   return 'other'
+}
+
+export function deriveWorkflowDisplayStatus(
+  workflow: Pick<WorkflowInfo, 'status'>,
+  steps: Step[],
+): WorkflowStatus {
+  if (workflow.status === 'PENDING' && steps.some((step) => step.status === 'ERROR')) {
+    return 'ERROR'
+  }
+  return workflow.status
 }
 
 export function sumTokens(steps: Step[]): number {
