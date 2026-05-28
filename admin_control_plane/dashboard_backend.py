@@ -213,7 +213,15 @@ async def get_workflow_detail(workflow_id: str):
 
 @app.post("/workflows/{workflow_id}/resume")
 async def resume_workflow(workflow_id: str):
-    return await get_dashboard_client().resume_workflow(workflow_id)
+    client = get_dashboard_client()
+    workflow = await client.get_workflow(workflow_id)
+    if workflow is None:
+        raise HTTPException(
+            status_code=404, detail=f"Workflow {workflow_id!r} not found"
+        )
+    return await client.resume_workflow(
+        workflow_id, queue_name=workflow.get("queue_name")
+    )
 
 
 @app.post("/workflows/{workflow_id}/cancel")

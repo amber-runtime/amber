@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { RotateCcw, Square, Loader2 } from 'lucide-react'
 import type { WorkflowInfo, Step } from '../../../lib/types'
 import {
   humanizeWorkflowName,
   formatTimestamp,
-  formatDuration,
+  formatWorkflowDuration,
   sumTokensIn,
   sumTokensOut,
   estimateCost,
@@ -22,7 +22,6 @@ import { CopyButton } from './right/CopyButton'
 interface Props {
   workflow: WorkflowInfo
   steps: Step[]
-  displayStatus: WorkflowInfo['status']
   onActionSuccess?: () => void
 }
 
@@ -143,22 +142,31 @@ function ActionButton({
   )
 }
 
-export function WorkflowHeader({ workflow, steps, displayStatus, onActionSuccess }: Props) {
+export function WorkflowHeader({ workflow, steps, onActionSuccess }: Props) {
   const [pending, setPending] = useState<'resume' | 'cancel' | null>(null)
+  const [nowMs, setNowMs] = useState(() => Date.now())
 
-  const totalDuration =
-    workflow.updated_at > workflow.created_at
-      ? workflow.updated_at - workflow.created_at
-      : null
+  useEffect(() => {
+    if (workflow.status !== 'PENDING') return
+    setNowMs(Date.now())
+    const timer = setInterval(() => setNowMs(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [workflow.status, workflow.workflow_id])
 
+  const totalDuration = formatWorkflowDuration(workflow, nowMs)
   const tokensIn = sumTokensIn(steps)
   const tokensOut = sumTokensOut(steps)
-  const attempts = workflow.attempts
+  const retries = workflow.recoveries
   const cost = estimateCost(steps)
   const llmCalls = countLlmCalls(steps)
   const toolCalls = countToolCalls(steps)
 
-  const canResume = workflow.status === 'ERROR' || workflow.status === 'CANCELLED'
+  const hasFailedStep = steps.some((s) => s.status === 'ERROR')
+  const canResume =
+    workflow.status !== 'ERROR' &&
+    (workflow.status === 'CANCELLED' ||
+      workflow.status === 'MAX_RECOVERY_ATTEMPTS_EXCEEDED' ||
+      (workflow.status === 'PENDING' && hasFailedStep))
   const canCancel = workflow.status === 'PENDING'
 
   const handleResume = async () => {
@@ -200,7 +208,7 @@ export function WorkflowHeader({ workflow, steps, displayStatus, onActionSuccess
         <h1 className="text-xl font-semibold text-slate-50 tracking-tight">
           {humanizeWorkflowName(workflow.name)}
         </h1>
-        <StatusBadge status={displayStatus} />
+        <StatusBadge status={workflow.status} />
         <span className="flex items-center font-mono text-xs text-slate-400">
           {workflow.workflow_id}
           <CopyButton text={workflow.workflow_id} label="Copy workflow ID" />
@@ -213,7 +221,7 @@ export function WorkflowHeader({ workflow, steps, displayStatus, onActionSuccess
             onClick={handleResume}
             enabled={canResume}
             pending={pending === 'resume'}
-            disabledReason="Resume is only available for errored workflows."
+            disabledReason="Resume is only available for cancelled workflows, workflows that exhausted recovery, or in-flight workflows with a failed step."
           />
           <ActionButton
             icon={Square}
@@ -232,17 +240,11 @@ export function WorkflowHeader({ workflow, steps, displayStatus, onActionSuccess
           Started {formatTimestamp(workflow.created_at)}
         </span>
 
-        {totalDuration != null && (
-          <StatItem label="Duration" value={formatDuration(totalDuration)} />
-        )}
+        <StatItem label="Duration" value={totalDuration} />
 
-        {attempts != null && attempts > 0 && (
-          <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${
-            attempts === 1
-              ? 'bg-slate-800 text-slate-400 border-slate-700'
-              : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-          }`}>
-            Attempts: {attempts}
+        {retries > 0 && (
+          <span className="px-2 py-0.5 rounded-full text-xs font-medium border bg-amber-500/15 text-amber-300 border-amber-500/30">
+            Retries: {retries}
           </span>
         )}
 

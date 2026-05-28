@@ -1,18 +1,31 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { Step, SelectedStepId, AgentGroup, WorkflowInfo } from '../../../lib/types'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type {
+  Step,
+  SelectedStepId,
+  AgentGroup,
+  WorkflowInfo,
+  WorkflowStatus,
+} from '../../../lib/types'
+import type { DowntimeInterval } from '../../../lib/stepHelpers'
 import {
   computeWorkflowWindow,
+  errorDowntimeInterval,
   filterStepsBySearch,
   groupStepsByAgent,
+  isWorkflowActivelyRunning,
+  pendingStallDowntimeInterval,
+  recoveryDowntimeInterval,
 } from '../../../lib/stepHelpers'
 import { AgentGroupSection } from './AgentGroupSection'
-import { RecoveryGapBand } from './RecoveryGapBand'
 import { StepListToolbar } from './StepListToolbar'
 import { TimeAxis } from './TimeAxis'
 
 interface Props {
   workflow: WorkflowInfo
   steps: Step[]
+  displayStatus?: WorkflowStatus
+  activeRefreshDowntimeStart?: number | null
+  resolvedRefreshDowntimes?: DowntimeInterval[]
   selectedStepId: SelectedStepId
   onStepClick: (id: number) => void
 }
@@ -23,12 +36,26 @@ function groupKey(group: AgentGroup): string {
   return group.agentName ?? PREFLIGHT_KEY
 }
 
-export function StepList({ workflow, steps, selectedStepId, onStepClick }: Props) {
+function stepRowKey(step: Step, groupIndex: number, stepIndex: number): string {
+  return step.step_id != null
+    ? `step-${step.step_id}`
+    : `fallback-${groupIndex}-${stepIndex}`
+}
+
+export function StepList({
+  workflow,
+  steps,
+  displayStatus,
+  activeRefreshDowntimeStart = null,
+  resolvedRefreshDowntimes = [],
+  selectedStepId,
+  onStepClick,
+}: Props) {
   const groups = useMemo(() => groupStepsByAgent(steps), [steps])
-  const window = useMemo(
-    () => computeWorkflowWindow(workflow, steps),
-    [workflow, steps],
-  )
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  const refreshAnchorByStartRef = useRef(new Map<number, string>())
+
+  const effectiveStatus = displayStatus ?? workflow.status
   const [searchQuery, setSearchQuery] = useState('')
   const [expansion, setExpansion] = useState<Map<string, boolean>>(() => {
     const m = new Map<string, boolean>()
@@ -73,6 +100,94 @@ export function StepList({ workflow, steps, selectedStepId, onStepClick }: Props
       }))
       .filter((g) => g.steps.length > 0)
   }, [groups, searching, matchingStepIds])
+
+  const lastVisibleStepKey = useMemo(() => {
+    for (let groupIndex = renderedGroups.length - 1; groupIndex >= 0; groupIndex--) {
+      const group = renderedGroups[groupIndex]
+      const key = groupKey(group)
+      const effectiveExpanded = searching ? true : expansion.get(key) ?? true
+      if (!effectiveExpanded) continue
+      for (let stepIndex = group.steps.length - 1; stepIndex >= 0; stepIndex--) {
+        return stepRowKey(group.steps[stepIndex], groupIndex, stepIndex)
+      }
+    }
+    return null
+  }, [renderedGroups, searching, expansion])
+
+  useEffect(() => {
+    if (activeRefreshDowntimeStart == null || lastVisibleStepKey == null) return
+    const anchors = refreshAnchorByStartRef.current
+    if (!anchors.has(activeRefreshDowntimeStart)) {
+      anchors.set(activeRefreshDowntimeStart, lastVisibleStepKey)
+    }
+  }, [activeRefreshDowntimeStart, lastVisibleStepKey])
+
+  const derivedDowntimeIntervals = useMemo(() => {
+    const intervals: DowntimeInterval[] = []
+    const recovery = recoveryDowntimeInterval(workflow, steps)
+    if (recovery != null) intervals.push(recovery)
+    const error = errorDowntimeInterval(
+      { ...workflow, status: effectiveStatus },
+      steps,
+    )
+    if (error != null) intervals.push(error)
+    const pendingStall = pendingStallDowntimeInterval(
+      { ...workflow, status: effectiveStatus },
+      steps,
+      nowMs,
+    )
+    if (pendingStall != null) intervals.push(pendingStall)
+    intervals.push(
+      ...resolvedRefreshDowntimes.map((interval) => ({
+        ...interval,
+        anchorRowKey:
+          interval.anchorRowKey ??
+          refreshAnchorByStartRef.current.get(interval.start),
+      })),
+    )
+    if (activeRefreshDowntimeStart != null) {
+      intervals.push({
+        start: activeRefreshDowntimeStart,
+        end: null,
+        source: 'refresh',
+        anchorRowKey:
+          refreshAnchorByStartRef.current.get(activeRefreshDowntimeStart) ??
+          lastVisibleStepKey ??
+          undefined,
+      })
+    }
+    return intervals
+  }, [
+    workflow,
+    effectiveStatus,
+    steps,
+    nowMs,
+    resolvedRefreshDowntimes,
+    activeRefreshDowntimeStart,
+    lastVisibleStepKey,
+  ])
+
+  const hasActiveDowntime = derivedDowntimeIntervals.some((interval) => interval.end == null)
+  const shouldTickTimeline =
+    hasActiveDowntime || isWorkflowActivelyRunning(effectiveStatus)
+
+  useEffect(() => {
+    if (!shouldTickTimeline) return
+    setNowMs(Date.now())
+    const interval = setInterval(() => setNowMs(Date.now()), 1000)
+    return () => clearInterval(interval)
+  }, [shouldTickTimeline])
+
+  const window = useMemo(
+    () => computeWorkflowWindow(
+      { ...workflow, status: effectiveStatus },
+      steps,
+      hasActiveDowntime ? nowMs : null,
+    ),
+    [workflow, effectiveStatus, steps, hasActiveDowntime, nowMs],
+  )
+  const workflowIsActive =
+    !hasActiveDowntime && isWorkflowActivelyRunning(effectiveStatus)
 
   const handleExpandAll = useCallback(() => {
     setExpansion(() => {
@@ -128,12 +243,6 @@ export function StepList({ workflow, steps, selectedStepId, onStepClick }: Props
         </div>
       ) : (
         <div className="relative space-y-2">
-          <RecoveryGapBand
-            workflow={workflow}
-            steps={steps}
-            windowStart={window.start}
-            windowEnd={window.end}
-          />
           {renderedGroups.map((group, i) => {
             const key = groupKey(group)
             // During search, force expansion so matches are visible without
@@ -149,6 +258,10 @@ export function StepList({ workflow, steps, selectedStepId, onStepClick }: Props
                 onExpandChange={(exp) => handleGroupExpandChange(key, exp)}
                 workflowStart={window.start}
                 workflowEnd={window.end}
+                workflowIsActive={workflowIsActive}
+                downtimeIntervals={derivedDowntimeIntervals}
+                groupIndex={i}
+                nowMs={nowMs}
               />
             )
           })}

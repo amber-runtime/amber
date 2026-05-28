@@ -20,6 +20,7 @@ class WorkflowRecord(BaseModel):
     updated_at: Optional[int]
     recovery_attempts: Optional[int]
     output: Optional[str] = None
+    queue_name: Optional[str] = None
 
 
 class StepRecord(BaseModel):

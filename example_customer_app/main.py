@@ -19,9 +19,9 @@ from pydantic import BaseModel, Field
 
 # Import agent modules so their @register_agent workflows are registered.
 from .user_agents import (
+    another_multi_agent_demo,
     multi_agent_demo,
     error_agent_demo,
-    queued_multi_agent_demo,
     single_agent_demo,  # noqa: F401
 )
 from sdk import (
@@ -79,7 +79,7 @@ KNOWN_AGENT_CAPABILITIES = {
         "display_name": "Decision Memo",
         "description": "Prepare an evidence-backed recommendation with risks and counterarguments.",
         "category": "Memo",
-        "sample_input": queued_multi_agent_demo.SAMPLE_MESSAGE,
+        "sample_input": another_multi_agent_demo.SAMPLE_MESSAGE,
     },
     "travel-concierge": {
         "display_name": "Site Visit Planner",
@@ -135,7 +135,6 @@ def _should_arm_travel_crash(agent: str, *, crash_during_hotel: bool) -> bool:
     return crash_during_hotel
 
 
-agent_runtime = AgentRuntime()
 def _arm_travel_crash_input(agent: str, run_input: str) -> str:
     if agent == TRAVEL_AGENT_NAME:
         return multi_agent_demo.request_hotel_crash_demo(run_input)
@@ -156,6 +155,8 @@ def _arm_enterprise_failure_input(run_input: str) -> str:
     run_input = error_agent_demo.enable_compliance_handoff_failure(run_input)
     return run_input
 
+
+agent_runtime = AgentRuntime()
 
 app = FastAPI(
     title="Customer App with Checkpoint SDK",
@@ -229,7 +230,7 @@ RUN_REQUEST_EXAMPLES = {
         "description": "Prepare an evidence-backed recommendation with risks and counterarguments.",
         "value": {
             "agent": "research-handoff-agent",
-            "input": queued_multi_agent_demo.SAMPLE_MESSAGE,
+            "input": another_multi_agent_demo.SAMPLE_MESSAGE,
         },
     },
     "site_visit_planner": {
