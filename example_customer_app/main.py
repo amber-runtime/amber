@@ -1,15 +1,17 @@
 """
 Customer app using our SDK
 
-Run:
+Run API:
   uv run uvicorn example_customer_app.main:app --port 8003
+
+Run worker in another terminal:
+  uv run python -m sdk.worker example_customer_app.main:agent_runtime
 """
 
-from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Body, FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -22,8 +24,7 @@ from .user_agents import (
     single_agent_demo,  # noqa: F401
 )
 from sdk import (
-    AgentService,
-    Runtime,
+    AgentRuntime,
     get_workflow,
     list_registered_agents,
 )
@@ -32,9 +33,6 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
-
-runtime = Runtime()
-agents = AgentService(runtime)
 
 
 class RunRequest(BaseModel):
@@ -46,12 +44,6 @@ class RunRequest(BaseModel):
         ]
     )
     input: str
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    runtime.start(listen_queues=[])
-    yield
 
 
 class RunResponse(BaseModel):
@@ -127,10 +119,12 @@ def _should_arm_travel_crash(agent: str, *, crash_during_hotel: bool) -> bool:
     return crash_during_hotel
 
 
+agent_runtime = AgentRuntime()
+
 app = FastAPI(
-    title="Customer App with Embedded Checkpoint SDK",
+    title="Customer App with Checkpoint SDK",
     version="0.1.0",
-    lifespan=lifespan,
+    lifespan=agent_runtime.api_lifespan(),
 )
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 app.add_middleware(
@@ -185,40 +179,9 @@ async def get_run(workflow_id: str) -> RunStatusResponse:
     )
 
 
-RUN_REQUEST_EXAMPLES = {
-    "market_research": {
-        "summary": "Market research",
-        "description": "Research vendor and market context for an operations decision.",
-        "value": {
-            "agent": "research-assistant",
-            "input": "Research AI dispatch software vendors for midsize logistics operators.",
-        },
-    },
-    "decision_memo": {
-        "summary": "Decision memo",
-        "description": "Prepare an evidence-backed recommendation with risks and counterarguments.",
-        "value": {
-            "agent": "research-handoff-agent",
-            "input": queued_multi_agent_demo.SAMPLE_MESSAGE,
-        },
-    },
-    "site_visit_planner": {
-        "summary": "Site visit planner",
-        "description": "Plan business travel for a vendor, customer, or site visit.",
-        "value": {
-            "agent": "travel-concierge",
-            "input": (
-                "Plan a 3-night vendor site visit to Tokyo from SFO for 2 people, "
-                "departing 2026-07-10 and returning 2026-07-13, budget $3000."
-            ),
-        },
-    },
-}
-
-
 @app.post("/runs", response_model=RunResponse)
 async def create_run(
-    request: RunRequest = Body(openapi_examples=RUN_REQUEST_EXAMPLES),
+    request: RunRequest,
     crash_during_hotel: bool = Query(
         default=False,
         description=(
@@ -234,5 +197,5 @@ async def create_run(
     ):
         run_input = multi_agent_demo.request_hotel_crash_demo(run_input)
 
-    handle = await agents.start(request.agent, run_input)
+    handle = await agent_runtime.agents.start(request.agent, run_input)
     return RunResponse(workflow_id=handle.workflow_id, agent=request.agent)

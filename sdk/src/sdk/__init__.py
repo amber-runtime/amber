@@ -25,6 +25,7 @@ from .decorators import (
 )
 from .runtime import (
     AgentService,
+    AgentRuntime,
     DEFAULT_AGENT_QUEUE,
     Runtime,
     WorkerService,
@@ -33,6 +34,7 @@ from .runtime import (
 __all__ = [
     "DEFAULT_AGENT_QUEUE",
     "Runtime",
+    "AgentRuntime",
     "AgentService",
     "WorkerService",
     "RegisteredAgent",

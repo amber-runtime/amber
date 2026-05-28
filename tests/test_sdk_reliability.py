@@ -513,17 +513,18 @@ class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
         registered = self.decorators.get_registered_agent("research-assistant")
         self.assertEqual(registered.name, "research-assistant")
         self.assertIs(registered.workflow, workflow_fn)
-        self.assertFalse(registered.queued)
+        self.assertFalse(hasattr(registered, "queued"))
         self.assertEqual(workflow_fn._dbos_workflow_name, "research-assistant")
 
-    def test_agent_decorator_stores_queued_metadata(self):
+    def test_agent_decorator_rejects_queued_argument(self):
         async def run_topic(topic: str) -> str:
             return topic
 
-        self.decorators.register_agent(name="research-handoff-agent", queued=True)(run_topic)
-
-        registered = self.decorators.get_registered_agent("research-handoff-agent")
-        self.assertTrue(registered.queued)
+        with self.assertRaisesRegex(TypeError, "queued"):
+            self.decorators.register_agent(
+                name="research-handoff-agent",
+                **{"queued": True},
+            )(run_topic)
 
     def test_agent_decorator_rejects_duplicate_names(self):
         self.decorators.register_agent(name="research-assistant")(lambda value: value)
@@ -591,15 +592,15 @@ class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.DBOS.init_calls), 1)
         self.DBOS.launch.assert_called_once()
 
-    async def test_agent_service_run_initializes_once_and_starts_registered_workflow(self):
+    async def test_agent_service_run_inline_initializes_once_and_starts_registered_workflow(self):
         async def run_topic(topic: str) -> str:
             return topic
 
         workflow_fn = self.decorators.register_agent(name="alpha")(run_topic)
         agents = self.runtime.AgentService()
 
-        first = await agents.run("alpha", "hello")
-        second = await agents.run("alpha", "again")
+        first = await agents.run_inline("alpha", "hello")
+        second = await agents.run_inline("alpha", "again")
 
         self.assertEqual(first.workflow_id, "workflow-started")
         self.assertEqual(second.workflow_id, "workflow-started")
@@ -610,25 +611,11 @@ class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
             [(workflow_fn, "hello"), (workflow_fn, "again")],
         )
 
-    async def test_agent_service_start_runs_immediate_registered_agent(self):
+    async def test_agent_service_start_enqueues_registered_agent(self):
         async def run_topic(topic: str) -> str:
             return topic
 
         workflow_fn = self.decorators.register_agent(name="alpha")(run_topic)
-        agents = self.runtime.AgentService()
-
-        handle = await agents.start("alpha", "hello")
-
-        self.assertEqual(handle.workflow_id, "workflow-started")
-        self.assertEqual(self.DBOS.started_workflows, [(workflow_fn, "hello")])
-        self.assertEqual(self.DBOS.enqueued_workflows, [])
-        self.assertEqual(self.DBOS.registered_queues, [])
-
-    async def test_agent_service_start_enqueues_queued_registered_agent(self):
-        async def run_topic(topic: str) -> str:
-            return topic
-
-        workflow_fn = self.decorators.register_agent(name="alpha", queued=True)(run_topic)
         agents = self.runtime.AgentService()
 
         handle = await agents.start("alpha", "hello")
@@ -644,31 +631,34 @@ class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
             [("agent-runs", workflow_fn, "hello")],
         )
 
-    async def test_agent_service_start_queue_name_override_applies_to_queued_agents_only(self):
+    async def test_agent_service_start_queue_name_override_applies(self):
         async def run_topic(topic: str) -> str:
             return topic
 
-        queued_workflow = self.decorators.register_agent(name="queued", queued=True)(run_topic)
-        immediate_workflow = self.decorators.register_agent(name="immediate")(run_topic)
+        queued_workflow = self.decorators.register_agent(name="queued")(run_topic)
+        other_workflow = self.decorators.register_agent(name="other")(run_topic)
         agents = self.runtime.AgentService()
 
         queued_handle = await agents.start("queued", "queued-input", queue_name="slow-lane")
-        immediate_handle = await agents.start("immediate", "immediate-input", queue_name="slow-lane")
+        other_handle = await agents.start("other", "other-input", queue_name="slow-lane")
 
         self.assertEqual(queued_handle.workflow_id, "workflow-enqueued")
-        self.assertEqual(immediate_handle.workflow_id, "workflow-started")
+        self.assertEqual(other_handle.workflow_id, "workflow-enqueued")
         self.assertEqual(
             self.DBOS.registered_queues,
-            [("slow-lane", {"on_conflict": "never_update"})],
+            [
+                ("slow-lane", {"on_conflict": "never_update"}),
+                ("slow-lane", {"on_conflict": "never_update"}),
+            ],
         )
         self.assertEqual(
             self.DBOS.enqueued_workflows,
-            [("slow-lane", queued_workflow, "queued-input")],
+            [
+                ("slow-lane", queued_workflow, "queued-input"),
+                ("slow-lane", other_workflow, "other-input"),
+            ],
         )
-        self.assertEqual(
-            self.DBOS.started_workflows,
-            [(immediate_workflow, "immediate-input")],
-        )
+        self.assertEqual(self.DBOS.started_workflows, [])
 
     def test_worker_service_register_queue_initializes_and_registers_queue(self):
         worker = self.runtime.WorkerService(
@@ -798,6 +788,80 @@ class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, "No agents are registered"):
             worker.run()
 
+    def test_agent_runtime_defaults_to_queue_first_worker_settings(self):
+        agent_runtime = self.runtime.AgentRuntime()
+
+        self.assertEqual(agent_runtime.queue_name, "agent-runs")
+        self.assertEqual(agent_runtime.worker_concurrency, 4)
+        self.assertIsNone(agent_runtime.queue_concurrency)
+        self.assertIsInstance(agent_runtime.agents, self.runtime.AgentService)
+
+    async def test_agent_runtime_api_lifespan_disables_queue_listeners(self):
+        agent_runtime = self.runtime.AgentRuntime()
+
+        async with agent_runtime.api_lifespan()(object()):
+            pass
+
+        self.assertEqual(self.DBOS.listened_queues, [[]])
+        self.assertEqual(
+            self.DBOS.call_order,
+            ["init", ("listen_queues", []), "launch"],
+        )
+
+    def test_agent_runtime_rejects_global_concurrency_below_worker_concurrency(self):
+        with self.assertRaisesRegex(
+            ValueError,
+            "queue_concurrency must be greater than or equal to worker_concurrency",
+        ):
+            self.runtime.AgentRuntime(worker_concurrency=5, queue_concurrency=4)
+
+    def test_agent_runtime_run_worker_uses_configured_queue_settings(self):
+        self.decorators.register_agent(name="alpha")(lambda value: value)
+        agent_runtime = self.runtime.AgentRuntime(
+            queue_name="slow-lane",
+            worker_concurrency=4,
+            queue_concurrency=12,
+        )
+
+        agent_runtime.run_worker(keep_alive=False)
+
+        self.assertEqual(self.DBOS.listened_queues, [["slow-lane"]])
+        self.assertEqual(self.DBOS.registered_queues[0][0], "slow-lane")
+        self.assertEqual(self.DBOS.registered_queues[0][1]["worker_concurrency"], 4)
+        self.assertEqual(self.DBOS.registered_queues[0][1]["concurrency"], 12)
+
+
+class SDKWorkerEntrypointTests(unittest.TestCase):
+    def load_worker_entrypoint(self):
+        return load_module("sdk_worker_under_test", "sdk/src/sdk/worker.py")
+
+    def test_worker_entrypoint_loads_runtime_target_and_runs_worker(self):
+        module = types.ModuleType("customer_app.main")
+        agent_runtime = mock.Mock()
+        module.agent_runtime = agent_runtime
+
+        with mock.patch.dict(sys.modules, {"customer_app.main": module}):
+            worker_entrypoint = self.load_worker_entrypoint()
+            result = worker_entrypoint.main(["customer_app.main:agent_runtime"])
+
+        self.assertEqual(result, 0)
+        agent_runtime.run_worker.assert_called_once_with()
+
+    def test_worker_entrypoint_rejects_invalid_target_format(self):
+        worker_entrypoint = self.load_worker_entrypoint()
+
+        with self.assertRaisesRegex(ValueError, "module:object"):
+            worker_entrypoint._load_target("customer_app.main")
+
+    def test_worker_entrypoint_requires_run_worker_method(self):
+        module = types.ModuleType("customer_app.main")
+        module.agent_runtime = object()
+
+        with mock.patch.dict(sys.modules, {"customer_app.main": module}):
+            worker_entrypoint = self.load_worker_entrypoint()
+            with self.assertRaisesRegex(SystemExit, "run_worker"):
+                worker_entrypoint.main(["customer_app.main:agent_runtime"])
+
 
 class LoadWorkerTests(unittest.TestCase):
     def load_worker_module(self):
@@ -883,7 +947,7 @@ class LoadAppTests(unittest.IsolatedAsyncioTestCase):
                 self.enqueued = []
                 AgentService.instances.append(self)
 
-            async def enqueue(self, name, input):
+            async def start(self, name, input):
                 self.enqueued.append((name, input))
                 return types.SimpleNamespace(workflow_id="workflow-enqueued")
 

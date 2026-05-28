@@ -263,7 +263,7 @@ def _run_research_phase(
     raise ValueError(f"Unknown research phase: {action}")
 
 
-@register_agent(name="research-handoff-agent", queued=True)
+@register_agent(name="research-handoff-agent")
 async def run_agent(message: str) -> str:
     completed: set[str] = set()
     findings: dict[str, Any] = {}

@@ -5,6 +5,7 @@ import os
 import threading
 import time
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from typing import Any
 
 from dbos import DBOS, DBOSConfig
@@ -76,10 +77,14 @@ class AgentService:
         self.runtime = runtime or _get_default_runtime()
         self.default_queue_name = default_queue_name
 
-    async def run(self, name: str, input: str):
+    # Deprecated method since we only allow queued workflows. Can still be used for testing purposes
+    async def run_inline(self, name: str, input: str):
         self.runtime.start()
         registered_agent = get_registered_agent(name)
         return await DBOS.start_workflow_async(registered_agent.workflow, input)
+
+    async def run(self, name: str, input: str):
+        return await self.run_inline(name, input)
 
     async def start(
         self,
@@ -88,10 +93,7 @@ class AgentService:
         *,
         queue_name: str | None = None,
     ):
-        registered_agent = get_registered_agent(name)
-        if registered_agent.queued:
-            return await self.enqueue(name, input, queue_name=queue_name)
-        return await self.run(name, input)
+        return await self.enqueue(name, input, queue_name=queue_name)
 
     async def enqueue(
         self,
@@ -116,9 +118,9 @@ class WorkerService:
         self,
         runtime: Runtime | None = None,
         *,
-        agent_modules: list[str] | tuple[str, ...],
+        agent_modules: list[str] | tuple[str, ...] = (),
         queue_name: str = DEFAULT_AGENT_QUEUE,
-        worker_concurrency: int | None = 1,
+        worker_concurrency: int | None = 4,
         concurrency: int | None = None,
         limiter: dict[str, Any] | None = None,
         priority_enabled: bool = False,
@@ -158,9 +160,6 @@ class WorkerService:
         )
 
     def run(self) -> None:
-        if not self.agent_modules:
-            raise ValueError("agent_modules must include at least one import path.")
-
         imported_modules = []
         for module_name in self.agent_modules:
             imported_modules.append(importlib.import_module(module_name).__name__)
@@ -203,6 +202,53 @@ class WorkerService:
                     time.sleep(3600)
             except KeyboardInterrupt:
                 logger.info("agent worker shutting down")
+
+
+class AgentRuntime:
+    def __init__(
+        self,
+        runtime: Runtime | None = None,
+        *,
+        agent_modules: list[str] | tuple[str, ...] = (),
+        queue_name: str = DEFAULT_AGENT_QUEUE,
+        worker_concurrency: int | None = 4,
+        queue_concurrency: int | None = None,
+    ) -> None:
+        self.runtime = runtime or Runtime()
+        self.agent_modules = list(agent_modules)
+        self.queue_name = queue_name
+        self.worker_concurrency = worker_concurrency
+        self.queue_concurrency = queue_concurrency
+        self.agents = AgentService(
+            self.runtime,
+            default_queue_name=self.queue_name,
+        )
+
+        if queue_concurrency is not None and worker_concurrency is not None:
+            if queue_concurrency < worker_concurrency:
+                raise ValueError(
+                    "queue_concurrency must be greater than or equal to "
+                    "worker_concurrency"
+                )
+
+    def api_lifespan(self):
+        @asynccontextmanager
+        async def lifespan(_app: Any):
+            self.runtime.start(listen_queues=[])
+            yield
+
+        return lifespan
+
+    def run_worker(self, *, keep_alive: bool = True) -> None:
+        worker = WorkerService(
+            runtime=self.runtime,
+            agent_modules=self.agent_modules,
+            queue_name=self.queue_name,
+            worker_concurrency=self.worker_concurrency,
+            concurrency=self.queue_concurrency,
+            keep_alive=keep_alive,
+        )
+        worker.run()
 
 
 def _ensure_queue_exists(queue_name: str) -> Any:
@@ -271,7 +317,11 @@ def _start_dbos_runtime(
                 )
             return
 
-        if _runtime_owner_id is not None and owner_id is not None and owner_id != _runtime_owner_id:
+        if (
+            _runtime_owner_id is not None
+            and owner_id is not None
+            and owner_id != _runtime_owner_id
+        ):
             raise _single_runtime_error()
         _runtime_owner_id = owner_id
 

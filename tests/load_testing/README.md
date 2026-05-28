@@ -98,10 +98,10 @@ API_URL=http://localhost:8004 REQUESTS=20 k6 run tests/load_testing/k6/queue-enq
 
 Expected reporter behavior: submitted workflows remain `ENQUEUED`.
 
-For normal app development, `example_customer_app.worker` is the clean worker
-template. For load testing, use `tests.load_testing.load_worker`; it reads
-concurrency settings from env vars so you can change them without editing the
-template.
+For normal app development, use the SDK-owned worker entrypoint:
+`python -m sdk.worker example_customer_app.main:agent_runtime`. For load
+testing, use `tests.load_testing.load_worker`; it reads concurrency settings
+from env vars so you can change them without editing app code.
 
 One load-test worker, one active workflow:
 
