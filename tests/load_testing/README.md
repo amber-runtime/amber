@@ -102,6 +102,9 @@ For normal app development, use the SDK-owned worker entrypoint:
 `python -m sdk.worker example_customer_app.main:agent_runtime`. For load
 testing, use `tests.load_testing.load_worker`; it reads concurrency settings
 from env vars so you can change them without editing app code.
+The load-test worker intentionally uses `WorkerService` directly so the harness
+can vary `worker_concurrency` and `queue_concurrency` independently of the
+customer app.
 
 One load-test worker, one active workflow:
 
