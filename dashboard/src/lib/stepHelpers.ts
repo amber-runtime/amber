@@ -189,6 +189,7 @@ export function groupStepsByAgent(steps: Step[]): AgentGroup[] {
 
 const WORKFLOW_WINDOW_MIN_MS = 5000
 const BAR_MIN_WIDTH_PCT = 0.5
+const ACTIVE_WORKFLOW_STATUSES: ReadonlySet<string> = new Set(['PENDING'])
 
 export interface StepBarGeometry {
   leftPct: number
@@ -196,12 +197,30 @@ export interface StepBarGeometry {
   inProgress: boolean
 }
 
+export interface DowntimeInterval {
+  start: number
+  end: number | null
+  source: 'error' | 'refresh' | 'recovery' | 'pending-stall'
+  anchorStepId?: number | null
+  anchorRowKey?: string
+}
+
+export interface DowntimeBarGeometry {
+  leftPct: number
+  widthPct: number
+}
+
 const TERMINAL_WORKFLOW_STATUSES: ReadonlySet<string> = new Set([
   'SUCCESS',
   'ERROR',
   'CANCELLED',
   'FAILURE',
+  'MAX_RECOVERY_ATTEMPTS_EXCEEDED',
 ])
+
+export function isWorkflowActivelyRunning(status: string): boolean {
+  return ACTIVE_WORKFLOW_STATUSES.has(status)
+}
 
 function isFiniteNumber(n: unknown): n is number {
   return typeof n === 'number' && Number.isFinite(n)
@@ -216,6 +235,7 @@ function stepDerivedEnd(steps: Step[], fallback: number): number {
 export function computeWorkflowWindow(
   workflow: WorkflowInfo,
   steps: Step[],
+  visualEndOverrideMs: number | null = null,
 ): { start: number; end: number } {
   const start = isFiniteNumber(workflow.created_at)
     ? workflow.created_at
@@ -223,7 +243,9 @@ export function computeWorkflowWindow(
 
   const isTerminal = TERMINAL_WORKFLOW_STATUSES.has(workflow.status)
   let end: number
-  if (isTerminal) {
+  if (isFiniteNumber(visualEndOverrideMs)) {
+    end = visualEndOverrideMs
+  } else if (isTerminal) {
     end = isFiniteNumber(workflow.updated_at)
       ? workflow.updated_at
       : stepDerivedEnd(steps, start)
@@ -248,7 +270,45 @@ export function computeStepBarGeometry(
   return { leftPct, widthPct, inProgress }
 }
 
+export function computeDowntimeBarGeometry(
+  interval: DowntimeInterval,
+  workflowStart: number,
+  workflowEnd: number,
+  nowMs: number,
+): DowntimeBarGeometry | null {
+  const totalDuration = Math.max(workflowEnd - workflowStart, 1)
+  const rawStart = Math.max(interval.start, workflowStart)
+  const rawEnd = Math.min(interval.end ?? nowMs, workflowEnd)
+  if (rawEnd < rawStart) return null
+  if (rawEnd === rawStart && interval.end != null) return null
+  const leftPct = ((rawStart - workflowStart) / totalDuration) * 100
+  const widthPct = Math.max(((rawEnd - rawStart) / totalDuration) * 100, BAR_MIN_WIDTH_PCT)
+  return { leftPct, widthPct }
+}
+
 const RECOVERY_GAP_MIN_MS = 1000
+export const PENDING_STALL_GRACE_MS = 5000
+
+function latestStepActivity(
+  steps: Step[],
+): { step: Step; timestamp: number } | null {
+  let latest: { step: Step; timestamp: number } | null = null
+  for (const step of steps) {
+    const candidates = [
+      stepStartedAtMs(step),
+      stepCompletedAtMs(step),
+      step.duration_ms != null && step.started_at_epoch_ms != null
+        ? step.started_at_epoch_ms + step.duration_ms
+        : null,
+    ].filter((value): value is number => value != null)
+    for (const timestamp of candidates) {
+      if (latest == null || timestamp > latest.timestamp) {
+        latest = { step, timestamp }
+      }
+    }
+  }
+  return latest
+}
 
 // Largest period during which no step was active. Uses a running max-end so
 // overlapping concurrent steps don't register as gaps. Returns null if no gap
@@ -281,6 +341,109 @@ export function findLargestRecoveryGap(
     if (intervals[i].end > runningMaxEnd) runningMaxEnd = intervals[i].end
   }
   return best
+}
+
+export function recoveryDowntimeInterval(
+  workflow: WorkflowInfo,
+  steps: Step[],
+): DowntimeInterval | null {
+  if ((workflow.attempts ?? 0) <= 1) return null
+  const gap = findLargestRecoveryGap(steps)
+  if (gap == null) return null
+  const anchorStep = steps
+    .filter((step) => stepCompletedAtMs(step) === gap.start)
+    .sort((a, b) => (stepStartedAtMs(b) ?? 0) - (stepStartedAtMs(a) ?? 0))[0]
+  return {
+    ...gap,
+    source: 'recovery',
+    anchorStepId: anchorStep?.step_id ?? null,
+  }
+}
+
+export function errorDowntimeInterval(
+  workflow: WorkflowInfo,
+  steps: Step[],
+): DowntimeInterval | null {
+  const errorSteps = steps
+    .filter((step) => step.status === 'ERROR')
+    .map((step) => ({
+      step,
+      start:
+        stepStartedAtMs(step) ??
+        stepCompletedAtMs(step) ??
+        (isFiniteNumber(workflow.updated_at) ? workflow.updated_at : null),
+    }))
+    .filter((entry): entry is { step: Step; start: number } => entry.start != null)
+    .sort((a, b) => a.start - b.start)
+
+  const firstError = errorSteps[0]
+  if (firstError == null) {
+    if (workflow.status !== 'ERROR') return null
+    const fallbackStart = isFiniteNumber(workflow.updated_at)
+      ? workflow.updated_at
+      : Date.now()
+    const latest = latestStepActivity(steps)
+    return {
+      start: fallbackStart,
+      end: null,
+      source: 'error',
+      anchorStepId: latest?.step.step_id ?? null,
+    }
+  }
+
+  const nextSuccessfulStep = steps
+    .map((step) => ({
+      start: stepStartedAtMs(step),
+      status: step.status,
+    }))
+    .filter(
+      (entry): entry is { start: number; status: 'SUCCESS' | 'ERROR' } =>
+        entry.start != null && entry.start > firstError.start && entry.status === 'SUCCESS',
+    )
+    .sort((a, b) => a.start - b.start)[0]
+
+  if (nextSuccessfulStep != null) {
+    return {
+      start: firstError.start,
+      end: nextSuccessfulStep.start,
+      source: 'error',
+      anchorStepId: firstError.step.step_id,
+    }
+  }
+
+  const isResolvedTerminal =
+    workflow.status === 'SUCCESS' ||
+    workflow.status === 'CANCELLED'
+  return {
+    start: firstError.start,
+    end: isResolvedTerminal && isFiniteNumber(workflow.updated_at)
+      ? workflow.updated_at
+      : null,
+    source: 'error',
+    anchorStepId: firstError.step.step_id,
+  }
+}
+
+export function pendingStallDowntimeInterval(
+  workflow: Pick<WorkflowInfo, 'status'>,
+  steps: Step[],
+  nowMs: number,
+  graceMs: number = PENDING_STALL_GRACE_MS,
+): DowntimeInterval | null {
+  if (workflow.status !== 'PENDING') return null
+  if (steps.length === 0) return null
+  if (steps.some((step) => stepCompletedAtMs(step) == null)) return null
+
+  const latest = latestStepActivity(steps)
+  if (latest == null) return null
+  if (nowMs - latest.timestamp < graceMs) return null
+
+  return {
+    start: latest.timestamp,
+    end: null,
+    source: 'pending-stall',
+    anchorStepId: latest.step.step_id,
+  }
 }
 
 const DATE_SUFFIX_RE = /-\d{4}-\d{2}-\d{2}$/

@@ -1,8 +1,8 @@
-import { act, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { setPricing } from '../../lib/pricingStore'
-import { makeDetail, makeWorkflow } from '../../test/fixtures'
+import { makeDetail, makeStep, makeWorkflow } from '../../test/fixtures'
 import { renderWithRoute } from '../../test/render'
 import { WorkflowDetailPage } from './WorkflowDetailPage'
 
@@ -76,6 +76,85 @@ describe('WorkflowDetailPage', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Research Assistant' })).toBeInTheDocument()
     expect(await screen.findByText('Failed to refresh. Showing last known data.')).toBeInTheDocument()
     expect(screen.getByText('timeout')).toBeInTheDocument()
+  })
+
+  it('shows red row downtime while stale pending data cannot refresh and closes it after recovery', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(6_000)
+    const firstStep = makeStep({
+      step_id: 1,
+      started_at_epoch_ms: 500,
+      completed_at_epoch_ms: 900,
+    })
+    const lastStep = makeStep({
+      step_id: 2,
+      started_at_epoch_ms: 1_000,
+      completed_at_epoch_ms: null,
+      display_completed_at_epoch_ms: undefined as unknown as null,
+      duration_ms: null,
+      display_duration_ms: undefined as unknown as null,
+    })
+    const recoveredDetail = makeDetail({
+      workflow: {
+        workflow_id: 'wf-1',
+        status: 'PENDING',
+        created_at: 0,
+        updated_at: 0,
+      },
+      steps: [firstStep, lastStep],
+    })
+    contextMocks.workflowDetails = { 'wf-1': recoveredDetail }
+    apiMocks.fetchWorkflowDetail
+      .mockRejectedValueOnce(new Error('timeout'))
+      .mockResolvedValueOnce(recoveredDetail)
+
+    renderDetailPage()
+
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(screen.getByText('Failed to refresh. Showing last known data.')).toBeInTheDocument()
+    expect(screen.getAllByTestId('step-gantt-bar')).toHaveLength(2)
+    expect(screen.getAllByTestId('downtime-gantt-bar')).toHaveLength(1)
+    expect(screen.getByTestId('downtime-gantt-bar')).toHaveClass('bg-red-500/85')
+
+    now.mockReturnValue(9_000)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /refresh now/i }))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(screen.queryByText('Failed to refresh. Showing last known data.')).not.toBeInTheDocument()
+    expect(contextMocks.setDetail).toHaveBeenCalledWith('wf-1', recoveredDetail)
+  })
+
+  it('shows red row downtime for an errored workflow', async () => {
+    contextMocks.workflowDetails = {
+      'wf-1': makeDetail({
+        workflow: {
+          workflow_id: 'wf-1',
+          status: 'ERROR',
+          created_at: 0,
+          updated_at: 4_000,
+        },
+        steps: [
+          makeStep({
+            step_id: 1,
+            status: 'ERROR',
+            started_at_epoch_ms: 2_000,
+            completed_at_epoch_ms: 2_500,
+          }),
+        ],
+      }),
+    }
+    apiMocks.fetchWorkflowDetail.mockResolvedValue(contextMocks.workflowDetails['wf-1'])
+
+    renderDetailPage()
+
+    expect(screen.getByTestId('downtime-gantt-bar')).toHaveClass('bg-red-500/85')
+    expect(screen.queryByText('running…')).not.toBeInTheDocument()
   })
 
   it('shows the waiting state and manual refresh for pending workflows with no steps', () => {

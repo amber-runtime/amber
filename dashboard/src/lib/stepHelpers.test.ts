@@ -1,14 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { setPricing } from './pricingStore'
 import {
+  computeDowntimeBarGeometry,
+  computeWorkflowWindow,
   computeCostBreakdown,
   countLlmCalls,
   countToolCalls,
+  errorDowntimeInterval,
   findLargestRecoveryGap,
   formatCost,
   groupStepsByAgent,
   humanizeStepName,
   humanizeWorkflowName,
+  isWorkflowActivelyRunning,
+  pendingStallDowntimeInterval,
+  recoveryDowntimeInterval,
   sumTokens,
   sumTokensIn,
   sumTokensOut,
@@ -137,5 +143,152 @@ describe('stepHelpers', () => {
 
   it('accepts workflow fixtures with typed statuses', () => {
     expect(makeWorkflow({ status: 'ERROR' }).status).toBe('ERROR')
+  })
+
+  it('only treats pending workflows as actively running', () => {
+    expect(isWorkflowActivelyRunning('PENDING')).toBe(true)
+    expect(isWorkflowActivelyRunning('SUCCESS')).toBe(false)
+    expect(isWorkflowActivelyRunning('ERROR')).toBe(false)
+    expect(isWorkflowActivelyRunning('CANCELLED')).toBe(false)
+    expect(isWorkflowActivelyRunning('MAX_RECOVERY_ATTEMPTS_EXCEEDED')).toBe(false)
+  })
+
+  it('can extend workflow windows with a visual end override', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(10_000)
+
+    expect(
+      computeWorkflowWindow(
+        makeWorkflow({
+          status: 'ERROR',
+          created_at: 0,
+          updated_at: 4_000,
+        }),
+        [],
+        8_000,
+      ),
+    ).toEqual({ start: 0, end: 8_000 })
+  })
+
+  it('converts downtime intervals into clipped gantt geometry', () => {
+    expect(
+      computeDowntimeBarGeometry(
+        { start: 2_000, end: 6_000, source: 'refresh' },
+        0,
+        10_000,
+        10_000,
+      ),
+    ).toEqual({ leftPct: 20, widthPct: 40 })
+
+    expect(
+      computeDowntimeBarGeometry(
+        { start: -1_000, end: null, source: 'error' },
+        0,
+        10_000,
+        5_000,
+      ),
+    ).toEqual({ leftPct: 0, widthPct: 50 })
+  })
+
+  it('derives recovered crash gaps as red downtime intervals', () => {
+    const workflow = makeWorkflow({ attempts: 2, recovery_attempts: 2 })
+    const steps = [
+      makeStep({ step_id: 1, started_at_epoch_ms: 0, completed_at_epoch_ms: 1_000 }),
+      makeStep({ step_id: 2, started_at_epoch_ms: 6_000, completed_at_epoch_ms: 7_000 }),
+    ]
+
+    expect(recoveryDowntimeInterval(workflow, steps)).toEqual({
+      start: 1_000,
+      end: 6_000,
+      source: 'recovery',
+      anchorStepId: 1,
+    })
+  })
+
+  it('derives active and recovered error downtime intervals from failed steps', () => {
+    const erroredSteps = [
+      makeStep({
+        step_id: 1,
+        status: 'ERROR',
+        started_at_epoch_ms: 2_000,
+        completed_at_epoch_ms: 2_500,
+      }),
+    ]
+
+    expect(
+      errorDowntimeInterval(
+        makeWorkflow({ status: 'ERROR', updated_at: 2_500 }),
+        erroredSteps,
+      ),
+    ).toEqual({ start: 2_000, end: null, source: 'error', anchorStepId: 1 })
+
+    expect(
+      errorDowntimeInterval(
+        makeWorkflow({ status: 'PENDING', updated_at: 8_000 }),
+        [
+          ...erroredSteps,
+          makeStep({
+            step_id: 2,
+            started_at_epoch_ms: 5_000,
+            completed_at_epoch_ms: 6_000,
+          }),
+        ],
+      ),
+    ).toEqual({ start: 2_000, end: 5_000, source: 'error', anchorStepId: 1 })
+  })
+
+  it('derives pending-stall downtime only after the grace period', () => {
+    const workflow = makeWorkflow({ status: 'PENDING' })
+    const steps = [
+      makeStep({
+        step_id: 1,
+        started_at_epoch_ms: 0,
+        completed_at_epoch_ms: 2_000,
+      }),
+      makeStep({
+        step_id: 2,
+        started_at_epoch_ms: 2_500,
+        completed_at_epoch_ms: 4_000,
+      }),
+    ]
+
+    expect(pendingStallDowntimeInterval(workflow, steps, 8_999)).toBeNull()
+    expect(pendingStallDowntimeInterval(workflow, steps, 9_000)).toEqual({
+      start: 4_000,
+      end: null,
+      source: 'pending-stall',
+      anchorStepId: 2,
+    })
+  })
+
+  it('does not derive pending-stall downtime for non-pending or currently active steps', () => {
+    expect(
+      pendingStallDowntimeInterval(
+        makeWorkflow({ status: 'SUCCESS' }),
+        [
+          makeStep({
+            step_id: 1,
+            started_at_epoch_ms: 0,
+            completed_at_epoch_ms: 1_000,
+          }),
+        ],
+        10_000,
+      ),
+    ).toBeNull()
+
+    expect(
+      pendingStallDowntimeInterval(
+        makeWorkflow({ status: 'PENDING' }),
+        [
+          makeStep({
+            step_id: 1,
+            started_at_epoch_ms: 0,
+            completed_at_epoch_ms: null,
+            display_completed_at_epoch_ms: undefined as unknown as null,
+          }),
+        ],
+        10_000,
+      ),
+    ).toBeNull()
   })
 })

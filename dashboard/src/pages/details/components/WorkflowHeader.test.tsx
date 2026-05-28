@@ -36,6 +36,7 @@ describe('WorkflowHeader', () => {
       <WorkflowHeader
         workflow={makeWorkflow({ recovery_attempts: 2, attempts: 2 })}
         steps={[makeStep({ tokens_in: 1_000, tokens_out: 500 }), makeToolStep()]}
+        displayStatus="SUCCESS"
       />,
     )
 
@@ -51,20 +52,42 @@ describe('WorkflowHeader', () => {
 
   it('enables resume only for resumable statuses and cancel only for pending', () => {
     const { rerender } = render(
-      <WorkflowHeader workflow={makeWorkflow({ status: 'ERROR' })} steps={[]} />,
+      <WorkflowHeader
+        workflow={makeWorkflow({ status: 'ERROR' })}
+        steps={[]}
+        displayStatus="ERROR"
+      />,
     )
     expect(screen.getByRole('button', { name: /resume/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /cancel/i })).toBeDisabled()
 
-    rerender(<WorkflowHeader workflow={makeWorkflow({ status: 'CANCELLED' })} steps={[]} />)
+    rerender(
+      <WorkflowHeader
+        workflow={makeWorkflow({ status: 'CANCELLED' })}
+        steps={[]}
+        displayStatus="CANCELLED"
+      />,
+    )
     expect(screen.getByRole('button', { name: /resume/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /cancel/i })).toBeDisabled()
 
-    rerender(<WorkflowHeader workflow={makeWorkflow({ status: 'PENDING' })} steps={[]} />)
+    rerender(
+      <WorkflowHeader
+        workflow={makeWorkflow({ status: 'PENDING' })}
+        steps={[]}
+        displayStatus="PENDING"
+      />,
+    )
     expect(screen.getByRole('button', { name: /resume/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /cancel/i })).toBeEnabled()
 
-    rerender(<WorkflowHeader workflow={makeWorkflow({ status: 'SUCCESS' })} steps={[]} />)
+    rerender(
+      <WorkflowHeader
+        workflow={makeWorkflow({ status: 'SUCCESS' })}
+        steps={[]}
+        displayStatus="SUCCESS"
+      />,
+    )
     expect(screen.getByRole('button', { name: /resume/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /cancel/i })).toBeDisabled()
   })
@@ -78,6 +101,7 @@ describe('WorkflowHeader', () => {
       <WorkflowHeader
         workflow={makeWorkflow({ workflow_id: 'wf-error', status: 'ERROR' })}
         steps={[]}
+        displayStatus="ERROR"
         onActionSuccess={onActionSuccess}
       />,
     )
@@ -97,6 +121,7 @@ describe('WorkflowHeader', () => {
       <WorkflowHeader
         workflow={makeWorkflow({ workflow_id: 'wf-pending', status: 'PENDING' })}
         steps={[]}
+        displayStatus="PENDING"
       />,
     )
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { AgentGroup } from '../../../lib/types'
+import type { DowntimeInterval } from '../../../lib/stepHelpers'
 import { formatDuration } from '../../../lib/stepHelpers'
 import { StepRow } from './StepRow'
 
@@ -12,6 +13,24 @@ interface Props {
   onExpandChange: (expanded: boolean) => void
   workflowStart: number
   workflowEnd: number
+  workflowIsActive: boolean
+  downtimeIntervals: DowntimeInterval[]
+  groupIndex: number
+  nowMs: number
+}
+
+function stepRowKey(stepId: number | null, groupIndex: number, stepIndex: number): string {
+  return stepId != null ? `step-${stepId}` : `fallback-${groupIndex}-${stepIndex}`
+}
+
+function intervalBelongsToRow(
+  interval: DowntimeInterval,
+  stepId: number | null,
+  rowKey: string,
+): boolean {
+  if (interval.anchorStepId != null) return interval.anchorStepId === stepId
+  if (interval.anchorRowKey != null) return interval.anchorRowKey === rowKey
+  return false
 }
 
 function PreflightBadge() {
@@ -43,6 +62,10 @@ export function AgentGroupSection({
   onExpandChange,
   workflowStart,
   workflowEnd,
+  workflowIsActive,
+  downtimeIntervals,
+  groupIndex,
+  nowMs,
 }: Props) {
   const prevContainedRef = useRef(false)
 
@@ -54,7 +77,8 @@ export function AgentGroupSection({
   }, [containsSelected, onExpandChange])
 
   const isAgent = group.agentName !== null
-  const hasRunning = group.steps.some((s) => s.completed_at_epoch_ms == null)
+  const hasUnfinished = group.steps.some((s) => s.completed_at_epoch_ms == null)
+  const hasRunning = workflowIsActive && hasUnfinished
   const borderClass = isAgent
     ? 'border-l-[3px] border-l-sky-600/50'
     : 'border-l-2 border-l-slate-600'
@@ -79,6 +103,8 @@ export function AgentGroupSection({
           </span>
           {hasRunning ? (
             <span className="text-xs text-amber-400 font-medium">running…</span>
+          ) : hasUnfinished ? (
+            <span className="text-xs text-red-300 font-medium">stalled</span>
           ) : group.totalDurationMs != null ? (
             <span className="text-xs text-slate-500 font-mono">
               {formatDuration(group.totalDurationMs)}
@@ -93,16 +119,25 @@ export function AgentGroupSection({
       {/* Body */}
       {isExpanded && (
         <div className="divide-y divide-slate-800/60 border-t border-slate-800">
-          {group.steps.map((step, i) => (
-            <StepRow
-              key={step.step_id ?? i}
-              step={step}
-              isSelected={step.step_id === selectedStepId}
-              onClick={onStepClick}
-              workflowStart={workflowStart}
-              workflowEnd={workflowEnd}
-            />
-          ))}
+          {group.steps.map((step, i) => {
+            const rowKey = stepRowKey(step.step_id, groupIndex, i)
+            const rowDowntimeIntervals = downtimeIntervals.filter((interval) =>
+              intervalBelongsToRow(interval, step.step_id, rowKey),
+            )
+            return (
+              <StepRow
+                key={step.step_id ?? i}
+                step={step}
+                isSelected={step.step_id === selectedStepId}
+                onClick={onStepClick}
+                workflowStart={workflowStart}
+                workflowEnd={workflowEnd}
+                workflowIsActive={workflowIsActive}
+                downtimeIntervals={rowDowntimeIntervals}
+                nowMs={nowMs}
+              />
+            )
+          })}
         </div>
       )}
     </div>

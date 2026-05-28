@@ -4,6 +4,7 @@ import { AlertCircle, ArrowLeft, RefreshCw } from 'lucide-react'
 import { useWorkflows } from '../../lib/workflowContext'
 import { fetchWorkflowDetail } from '../../lib/api'
 import type { SelectedStepId } from '../../lib/types'
+import type { DowntimeInterval } from '../../lib/stepHelpers'
 import { deriveWorkflowDisplayStatus } from '../../lib/stepHelpers'
 import { WorkflowHeader } from './components/WorkflowHeader'
 import { StepList } from './components/StepList'
@@ -29,8 +30,26 @@ export function WorkflowDetailPage() {
   const data = id ? workflowDetails[id] : null
   const [selectedStepId, setSelectedStepId] = useState<SelectedStepId>(null)
   const [fetchError, setFetchError] = useState<string | null>(null)
+  const [activeRefreshDowntimeStart, setActiveRefreshDowntimeStart] = useState<number | null>(null)
+  const [resolvedRefreshDowntimes, setResolvedRefreshDowntimes] = useState<DowntimeInterval[]>([])
   const loadPromiseRef = useRef<Promise<void> | null>(null)
   const loadWorkflowIdRef = useRef<string | null>(null)
+  const dataRef = useRef(data)
+  const activeRefreshDowntimeStartRef = useRef(activeRefreshDowntimeStart)
+
+  useEffect(() => {
+    dataRef.current = data
+  }, [data])
+
+  useEffect(() => {
+    activeRefreshDowntimeStartRef.current = activeRefreshDowntimeStart
+  }, [activeRefreshDowntimeStart])
+
+  useEffect(() => {
+    setFetchError(null)
+    setActiveRefreshDowntimeStart(null)
+    setResolvedRefreshDowntimes([])
+  }, [id])
 
   const handleStepClick = (stepId: number) => {
     setSelectedStepId((prev) => (prev === stepId ? null : stepId))
@@ -50,8 +69,19 @@ export function WorkflowDetailPage() {
         const detail = await fetchWorkflowDetail(workflowId)
         setDetail(workflowId, detail)
         setFetchError(null)
+        const downtimeStart = activeRefreshDowntimeStartRef.current
+        if (downtimeStart != null) {
+          setResolvedRefreshDowntimes((prev) => [
+            ...prev,
+            { start: downtimeStart, end: Date.now(), source: 'refresh' },
+          ])
+          setActiveRefreshDowntimeStart(null)
+        }
       } catch (err) {
         setFetchError(err instanceof Error ? err.message : 'Refresh failed')
+        if (dataRef.current != null) {
+          setActiveRefreshDowntimeStart((prev) => prev ?? Date.now())
+        }
       } finally {
         if (loadPromiseRef.current === promise) {
           loadPromiseRef.current = null
@@ -170,6 +200,9 @@ export function WorkflowDetailPage() {
                   <StepList
                     workflow={data.workflow}
                     steps={data.steps}
+                    displayStatus={displayStatus}
+                    activeRefreshDowntimeStart={activeRefreshDowntimeStart}
+                    resolvedRefreshDowntimes={resolvedRefreshDowntimes}
                     selectedStepId={selectedStepId}
                     onStepClick={handleStepClick}
                   />
