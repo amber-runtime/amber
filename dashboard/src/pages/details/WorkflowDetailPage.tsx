@@ -174,7 +174,6 @@ export function WorkflowDetailPage() {
       <WorkflowHeader
         workflow={data.workflow}
         steps={data.steps}
-        displayStatus={displayStatus}
         onActionSuccess={loadDetail}
       />
 
@@ -215,7 +214,6 @@ export function WorkflowDetailPage() {
                   <WorkflowDefaultPanel
                     workflow={data.workflow}
                     steps={data.steps}
-                    displayStatus={displayStatus}
                   />
                 )}
               </aside>

@@ -39,7 +39,6 @@ describe('WorkflowHeader', () => {
       <WorkflowHeader
         workflow={makeWorkflow({ recovery_attempts: 2, attempts: 2 })}
         steps={[makeStep({ tokens_in: 1_000, tokens_out: 500 }), makeToolStep()]}
-        displayStatus="SUCCESS"
       />,
     )
 
@@ -65,7 +64,6 @@ describe('WorkflowHeader', () => {
           updated_at: 1_000,
         })}
         steps={[]}
-        displayStatus="PENDING"
       />,
     )
 
@@ -87,7 +85,6 @@ describe('WorkflowHeader', () => {
           updated_at: 1_000,
         })}
         steps={[]}
-        displayStatus="SUCCESS"
       />,
     )
 
@@ -95,21 +92,20 @@ describe('WorkflowHeader', () => {
   })
 
   it('enables resume only for resumable statuses and cancel only for pending', () => {
+    // True ERROR: DBOS resume SQL excludes ERROR rows, so the button stays disabled.
     const { rerender } = render(
       <WorkflowHeader
         workflow={makeWorkflow({ status: 'ERROR' })}
         steps={[]}
-        displayStatus="ERROR"
       />,
     )
-    expect(screen.getByRole('button', { name: /resume/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /resume/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /cancel/i })).toBeDisabled()
 
     rerender(
       <WorkflowHeader
         workflow={makeWorkflow({ status: 'CANCELLED' })}
         steps={[]}
-        displayStatus="CANCELLED"
       />,
     )
     expect(screen.getByRole('button', { name: /resume/i })).toBeEnabled()
@@ -117,19 +113,40 @@ describe('WorkflowHeader', () => {
 
     rerender(
       <WorkflowHeader
+        workflow={makeWorkflow({ status: 'MAX_RECOVERY_ATTEMPTS_EXCEEDED' })}
+        steps={[]}
+      />,
+    )
+    expect(screen.getByRole('button', { name: /resume/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /cancel/i })).toBeDisabled()
+
+    // PENDING with no errored step: still actively running, leave Resume off.
+    rerender(
+      <WorkflowHeader
         workflow={makeWorkflow({ status: 'PENDING' })}
         steps={[]}
-        displayStatus="PENDING"
       />,
     )
     expect(screen.getByRole('button', { name: /resume/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /cancel/i })).toBeEnabled()
+
+    // PENDING but a step errored: badge still reads "Pending" (raw DBOS
+    // status), but Resume is enabled because a step failed.
+    rerender(
+      <WorkflowHeader
+        workflow={makeWorkflow({ status: 'PENDING' })}
+        steps={[makeStep({ status: 'ERROR' })]}
+      />,
+    )
+    expect(screen.getByText('Pending')).toBeInTheDocument()
+    expect(screen.queryByText('Error')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /resume/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /cancel/i })).toBeEnabled()
 
     rerender(
       <WorkflowHeader
         workflow={makeWorkflow({ status: 'SUCCESS' })}
         steps={[]}
-        displayStatus="SUCCESS"
       />,
     )
     expect(screen.getByRole('button', { name: /resume/i })).toBeDisabled()
@@ -143,16 +160,15 @@ describe('WorkflowHeader', () => {
 
     render(
       <WorkflowHeader
-        workflow={makeWorkflow({ workflow_id: 'wf-error', status: 'ERROR' })}
+        workflow={makeWorkflow({ workflow_id: 'wf-cancelled', status: 'CANCELLED' })}
         steps={[]}
-        displayStatus="ERROR"
         onActionSuccess={onActionSuccess}
       />,
     )
 
     await user.click(screen.getByRole('button', { name: /resume/i }))
 
-    await waitFor(() => expect(apiMocks.resumeWorkflow).toHaveBeenCalledWith('wf-error'))
+    await waitFor(() => expect(apiMocks.resumeWorkflow).toHaveBeenCalledWith('wf-cancelled'))
     expect(onActionSuccess).toHaveBeenCalled()
     expect(toastMocks.showToast).toHaveBeenCalledWith('Workflow resumed')
   })
@@ -165,7 +181,6 @@ describe('WorkflowHeader', () => {
       <WorkflowHeader
         workflow={makeWorkflow({ workflow_id: 'wf-pending', status: 'PENDING' })}
         steps={[]}
-        displayStatus="PENDING"
       />,
     )
 

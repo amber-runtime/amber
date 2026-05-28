@@ -1,4 +1,11 @@
-export type WorkflowStatus = 'SUCCESS' | 'PENDING' | 'ERROR' | 'CANCELLED' | 'ENQUEUED'
+export type WorkflowStatus =
+  | 'SUCCESS'
+  | 'PENDING'
+  | 'ERROR'
+  | 'CANCELLED'
+  | 'ENQUEUED'
+  | 'MAX_RECOVERY_ATTEMPTS_EXCEEDED'
+  | 'DELAYED'
 
 export interface Step {
   step_id: number | null
@@ -34,6 +41,7 @@ export interface WorkflowInfo {
   attempts: number | null
   recoveries: number                 // derived: max(0, recovery_attempts - 1)
   output: string | null
+  queue_name: string | null
 }
 
 export interface WorkflowDetail {

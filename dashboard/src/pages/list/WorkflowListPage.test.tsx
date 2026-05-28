@@ -87,16 +87,20 @@ describe('WorkflowListPage', () => {
     expect(screen.getByText('4.0s')).toBeInTheDocument()
   })
 
-  it('uses derived display status for counts and status filtering', async () => {
+  // Regression: previously the list page ran deriveWorkflowDisplayStatus over
+  // any cached steps from workflowDetails. Visiting the details page seeded
+  // those steps, and returning to the list flipped a raw-PENDING workflow's
+  // badge/filter to ERROR even though DBOS still reported PENDING.
+  it('shows raw DBOS status and ignores cached detail-page steps', async () => {
     const user = userEvent.setup()
     contextMock.workflows = [
       workflow({ workflow_id: 'wf-success', status: 'SUCCESS', name: 'done-agent' }),
       workflow({ workflow_id: 'wf-pending', status: 'PENDING', name: 'running-agent' }),
-      workflow({ workflow_id: 'wf-derived-error', status: 'PENDING', name: 'derived-error' }),
+      workflow({ workflow_id: 'wf-pending-with-failed-step', status: 'PENDING', name: 'pending-after-detail-visit' }),
     ]
     contextMock.workflowDetails = {
-      'wf-derived-error': makeDetail({
-        workflow: { workflow_id: 'wf-derived-error', status: 'PENDING' },
+      'wf-pending-with-failed-step': makeDetail({
+        workflow: { workflow_id: 'wf-pending-with-failed-step', status: 'PENDING' },
         steps: [
           makeStep({
             status: 'ERROR',
@@ -110,14 +114,18 @@ describe('WorkflowListPage', () => {
 
     expect(screen.getByRole('button', { name: 'All (3)' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Completed (1)' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Pending (1)' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Errored (1)' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Pending (2)' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Errored (0)' })).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Errored (1)' }))
+    // Both PENDING rows render the raw "Pending" badge — the cached errored
+    // step on wf-pending-with-failed-step does not promote it to "Error".
+    expect(screen.getAllByText('Pending')).toHaveLength(2)
+    expect(screen.queryByText('Error')).not.toBeInTheDocument()
 
-    expect(screen.getByText('Derived Error')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Errored (0)' }))
+
+    expect(screen.queryByText('Pending After Detail Visit')).not.toBeInTheDocument()
     expect(screen.queryByText('Running Agent')).not.toBeInTheDocument()
-    expect(screen.getByText('Error')).toBeInTheDocument()
   })
 
   it('filters by search and navigates when a row is clicked', async () => {

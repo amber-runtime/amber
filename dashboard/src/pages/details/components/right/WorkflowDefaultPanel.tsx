@@ -14,7 +14,6 @@ import { FinalAnswerCard } from '../FinalAnswerCard'
 interface Props {
   workflow: WorkflowInfo
   steps: Step[]
-  displayStatus: WorkflowStatus
 }
 
 const STATUS_STYLES: Record<WorkflowStatus, string> = {
@@ -23,6 +22,8 @@ const STATUS_STYLES: Record<WorkflowStatus, string> = {
   ERROR: 'bg-red-500/15 text-red-300 ring-1 ring-red-500/30',
   CANCELLED: 'bg-slate-800 text-slate-400 ring-1 ring-slate-700',
   ENQUEUED: 'bg-blue-500/15 text-blue-300 ring-1 ring-blue-500/30',
+  MAX_RECOVERY_ATTEMPTS_EXCEEDED: 'bg-red-500/15 text-red-300 ring-1 ring-red-500/30',
+  DELAYED: 'bg-blue-500/15 text-blue-300 ring-1 ring-blue-500/30',
 }
 
 function StatusBadge({ status }: { status: WorkflowStatus }) {
@@ -110,10 +111,10 @@ function PricingSyncedAt({ syncedAt }: { syncedAt: number | null }) {
   )
 }
 
-export function WorkflowDefaultPanel({ workflow, steps, displayStatus }: Props) {
+export function WorkflowDefaultPanel({ workflow, steps }: Props) {
   const inputAvailable = false   // backend-blocked; field doesn't exist on WorkflowInfo yet
   const finalAnswerExpandedByDefault =
-    displayStatus === 'SUCCESS' && workflow.output != null
+    workflow.status === 'SUCCESS' && workflow.output != null
   const attempts = workflow.attempts
   const agents = countAgents(steps)
   const models = uniqueModels(steps)
@@ -129,7 +130,7 @@ export function WorkflowDefaultPanel({ workflow, steps, displayStatus }: Props) 
     ],
     ['Created', formatTimestamp(workflow.created_at)],
     ['Updated', formatTimestamp(workflow.updated_at)],
-    ['Status', <StatusBadge key="status" status={displayStatus} />],
+    ['Status', <StatusBadge key="status" status={workflow.status} />],
     ...(attempts != null && attempts > 0
       ? ([['Attempts', String(attempts)]] as Array<[string, React.ReactNode]>)
       : []),
@@ -154,7 +155,7 @@ export function WorkflowDefaultPanel({ workflow, steps, displayStatus }: Props) 
           <h2 className="text-sm font-semibold text-slate-100 truncate flex-1">
             {humanizeWorkflowName(workflow.name)}
           </h2>
-          <StatusBadge status={displayStatus} />
+          <StatusBadge status={workflow.status} />
         </div>
       </div>
 
@@ -167,7 +168,7 @@ export function WorkflowDefaultPanel({ workflow, steps, displayStatus }: Props) 
 
       {/* Final Answer */}
       <Section title="Final Answer" defaultExpanded={finalAnswerExpandedByDefault}>
-        <FinalAnswerBody status={displayStatus} output={workflow.output} />
+        <FinalAnswerBody status={workflow.status} output={workflow.output} />
       </Section>
 
       {/* Metadata */}

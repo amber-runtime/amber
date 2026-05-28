@@ -88,7 +88,7 @@ class DashboardClientTests(unittest.IsolatedAsyncioTestCase):
             start_time="2026-05-26T00:00:00Z",
         )
 
-    async def test_get_workflow_includes_output(self):
+    async def test_get_workflow_includes_output_and_queue_name(self):
         client = DashboardClient.__new__(DashboardClient)
         client._db_url = "postgresql://db"
         client._client = mock.Mock()
@@ -101,6 +101,7 @@ class DashboardClientTests(unittest.IsolatedAsyncioTestCase):
                     created_at=1,
                     updated_at=2,
                     output={"done": True},
+                    queue_name="agent-runs",
                 )
             ]
         )
@@ -108,11 +109,20 @@ class DashboardClientTests(unittest.IsolatedAsyncioTestCase):
         workflow = await client.get_workflow("wf-1")
 
         self.assertEqual(workflow["output"], "{'done': True}")
+        self.assertEqual(workflow["queue_name"], "agent-runs")
         client._client.list_workflows_async.assert_awaited_once_with(
             workflow_ids=["wf-1"],
             load_input=False,
             load_output=True,
         )
+
+    async def test_get_workflow_returns_none_when_missing(self):
+        client = DashboardClient.__new__(DashboardClient)
+        client._db_url = "postgresql://db"
+        client._client = mock.Mock()
+        client._client.list_workflows_async = mock.AsyncMock(return_value=[])
+
+        self.assertIsNone(await client.get_workflow("missing"))
 
     async def test_get_workflow_detail_data_enriches_steps(self):
         client = DashboardClient.__new__(DashboardClient)

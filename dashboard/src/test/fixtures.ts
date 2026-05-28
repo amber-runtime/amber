@@ -12,6 +12,7 @@ export function makeWorkflow(overrides: Partial<WorkflowInfo> = {}): WorkflowInf
     attempts: recoveryAttempts,
     recoveries: Math.max(0, recoveryAttempts - 1),
     output: 'Done',
+    queue_name: null,
     ...overrides,
   }
 }

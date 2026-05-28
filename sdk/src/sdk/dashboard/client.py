@@ -117,7 +117,11 @@ class DashboardClient:
             load_input=False,
             load_output=True,
         )
-        return _wf_to_dict(workflows[0], include_output=True) if workflows else None
+        if not workflows:
+            return None
+        return _wf_to_dict(
+            workflows[0], include_output=True, include_queue=True
+        )
 
     async def get_steps(self, workflow_id: str) -> list[dict]:
         return await self._client.list_workflow_steps_async(workflow_id)

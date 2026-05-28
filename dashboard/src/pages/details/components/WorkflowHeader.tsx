@@ -22,7 +22,6 @@ import { CopyButton } from './right/CopyButton'
 interface Props {
   workflow: WorkflowInfo
   steps: Step[]
-  displayStatus: WorkflowInfo['status']
   onActionSuccess?: () => void
 }
 
@@ -143,7 +142,7 @@ function ActionButton({
   )
 }
 
-export function WorkflowHeader({ workflow, steps, displayStatus, onActionSuccess }: Props) {
+export function WorkflowHeader({ workflow, steps, onActionSuccess }: Props) {
   const [pending, setPending] = useState<'resume' | 'cancel' | null>(null)
   const [nowMs, setNowMs] = useState(() => Date.now())
 
@@ -162,7 +161,12 @@ export function WorkflowHeader({ workflow, steps, displayStatus, onActionSuccess
   const llmCalls = countLlmCalls(steps)
   const toolCalls = countToolCalls(steps)
 
-  const canResume = workflow.status === 'ERROR' || workflow.status === 'CANCELLED'
+  const hasFailedStep = steps.some((s) => s.status === 'ERROR')
+  const canResume =
+    workflow.status !== 'ERROR' &&
+    (workflow.status === 'CANCELLED' ||
+      workflow.status === 'MAX_RECOVERY_ATTEMPTS_EXCEEDED' ||
+      (workflow.status === 'PENDING' && hasFailedStep))
   const canCancel = workflow.status === 'PENDING'
 
   const handleResume = async () => {
@@ -204,7 +208,7 @@ export function WorkflowHeader({ workflow, steps, displayStatus, onActionSuccess
         <h1 className="text-xl font-semibold text-slate-50 tracking-tight">
           {humanizeWorkflowName(workflow.name)}
         </h1>
-        <StatusBadge status={displayStatus} />
+        <StatusBadge status={workflow.status} />
         <span className="flex items-center font-mono text-xs text-slate-400">
           {workflow.workflow_id}
           <CopyButton text={workflow.workflow_id} label="Copy workflow ID" />
@@ -217,7 +221,7 @@ export function WorkflowHeader({ workflow, steps, displayStatus, onActionSuccess
             onClick={handleResume}
             enabled={canResume}
             pending={pending === 'resume'}
-            disabledReason="Resume is only available for errored workflows."
+            disabledReason="Resume is only available for cancelled workflows, workflows that exhausted recovery, or in-flight workflows with a failed step."
           />
           <ActionButton
             icon={Square}
