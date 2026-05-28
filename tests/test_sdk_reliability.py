@@ -1,6 +1,7 @@
 import ast
 import importlib.util
 import os
+import pickle
 import sys
 import tempfile
 import types
@@ -551,6 +552,40 @@ class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
             [agent.name for agent in self.decorators.list_registered_agents()],
             ["alpha", "zeta"],
         )
+
+    async def test_agent_runner_sanitizes_pickling_unsafe_exceptions(self):
+        def closure():
+            return "not pickleable"
+
+        unsafe = RuntimeError("tool failed")
+        unsafe.bad_attr = closure
+        self.assertRaises(Exception, pickle.dumps, unsafe)
+
+        self.decorators.DBOSRunner.run = mock.AsyncMock(side_effect=unsafe)
+
+        with self.assertRaises(self.decorators.AgentRunError) as ctx:
+            await self.decorators.agent_runner(starting_agent="alpha", input="hello")
+
+        self.assertEqual(str(ctx.exception), "tool failed")
+        self.assertEqual(ctx.exception.original_type, "RuntimeError")
+        self.assertIsNone(ctx.exception.__cause__)
+        self.assertTrue(ctx.exception.__suppress_context__)
+        pickle.dumps(ctx.exception)
+
+    async def test_agent_runner_preserves_clean_message_for_wrapped_errors(self):
+        wrapped = RuntimeError(
+            "Error running tool commit_compliance_handoff: Compliance ticket schema mismatch blocked external handoff."
+        )
+        self.decorators.DBOSRunner.run = mock.AsyncMock(side_effect=wrapped)
+
+        with self.assertRaises(self.decorators.AgentRunError) as ctx:
+            await self.decorators.agent_runner(starting_agent="alpha", input="hello")
+
+        self.assertEqual(
+            str(ctx.exception),
+            "Error running tool commit_compliance_handoff: Compliance ticket schema mismatch blocked external handoff.",
+        )
+        self.assertEqual(ctx.exception.original_type, "RuntimeError")
 
     def test_runtime_start_is_idempotent_and_reads_embedded_env(self):
         with mock.patch.dict(

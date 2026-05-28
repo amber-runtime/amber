@@ -15,6 +15,12 @@ class RegisteredAgent:
     workflow: Callable[..., Any]
 
 
+class AgentRunError(RuntimeError):
+    def __init__(self, message: str, *, original_type: str | None = None) -> None:
+        self.original_type = original_type
+        super().__init__(message)
+
+
 _registered_agents: dict[str, RegisteredAgent] = {}
 
 
@@ -122,7 +128,13 @@ async def sleep(*args, **kwargs):
 
 
 async def agent_runner(*args, **kwargs):
-    return await DBOSRunner.run(*args, **kwargs)
+    try:
+        return await DBOSRunner.run(*args, **kwargs)
+    except AgentRunError:
+        raise
+    except Exception as exc:
+        sanitized = _sanitize_agent_run_error(exc)
+        raise sanitized from None
 
 
 logger = DBOS.logger
@@ -141,3 +153,12 @@ def _log_step_failed(step_name: str, started_at: float, exc: Exception) -> None:
     logger.error(
         "step %s failed (%.2fs): %s", step_name, time.monotonic() - started_at, exc
     )
+
+
+def _sanitize_agent_run_error(exc: Exception) -> AgentRunError:
+    message = str(exc).strip() or type(exc).__name__
+    sanitized = AgentRunError(message, original_type=type(exc).__name__)
+    sanitized.__cause__ = None
+    sanitized.__context__ = None
+    sanitized.__suppress_context__ = True
+    return sanitized
