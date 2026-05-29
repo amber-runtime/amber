@@ -1,7 +1,7 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { Route, Routes } from 'react-router-dom'
 import { setPricing } from '../../lib/pricingStore'
 import { makeDetail, makeStep, makeWorkflow } from '../../test/fixtures'
 import { renderWithRoute } from '../../test/render'
@@ -12,6 +12,7 @@ const apiMocks = vi.hoisted(() => ({
   fetchWorkflowDetail: vi.fn(),
   resumeWorkflow: vi.fn(),
   cancelWorkflow: vi.fn(),
+  forkWorkflow: vi.fn(),
 }))
 
 const contextMocks = vi.hoisted(() => ({

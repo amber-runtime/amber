@@ -15,6 +15,7 @@ import {
   humanizeStepName,
   stepCompletedAtMs,
   stepDurationMs,
+  stepTimelineStartedAtMs,
 } from '../../../lib/stepHelpers'
 
 interface Props {
@@ -80,7 +81,7 @@ function StepBar({
   downtimeIntervals: DowntimeInterval[]
   nowMs: number
 }) {
-  const hasTiming = step.started_at_epoch_ms != null
+  const hasTiming = stepTimelineStartedAtMs(step) != null
   const visuallyRunning = workflowIsActive && stepCompletedAtMs(step) == null
   const geom = hasTiming
     ? computeStepBarGeometry(step, workflowStart, workflowEnd)

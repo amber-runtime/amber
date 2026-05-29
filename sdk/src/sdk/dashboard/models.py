@@ -19,6 +19,7 @@ class WorkflowRecord(BaseModel):
     created_at: Optional[int]
     updated_at: Optional[int]
     recovery_attempts: Optional[int]
+    forked_from: Optional[str] = None
     output: Optional[str] = None
     queue_name: Optional[str] = None
 

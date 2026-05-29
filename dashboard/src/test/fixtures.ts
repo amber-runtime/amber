@@ -8,6 +8,7 @@ export function makeWorkflow(overrides: Partial<WorkflowInfo> = {}): WorkflowInf
     status: 'SUCCESS',
     created_at: 1_700_000_000_000,
     updated_at: 1_700_000_002_500,
+    forked_from: null,
     recovery_attempts: recoveryAttempts,
     attempts: recoveryAttempts,
     recoveries: Math.max(0, recoveryAttempts - 1),

@@ -107,4 +107,40 @@ describe('StepList downtime row anchoring', () => {
       expect.stringContaining('Crashed Step'),
     )
   })
+
+  it('rebases old inherited fork history so current running steps stay visible', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(12_000)
+
+    renderStepList({
+      workflow: makeWorkflow({
+        workflow_id: 'wf-forked',
+        status: 'PENDING',
+        created_at: 10_000,
+        updated_at: 10_000,
+        forked_from: 'wf-source',
+      }),
+      steps: [
+        makeStep({
+          step_id: 1,
+          function_name: 'old_step',
+          started_at_epoch_ms: 1_000,
+          completed_at_epoch_ms: 2_000,
+        }),
+        makeStep({
+          step_id: 2,
+          function_name: 'current_step',
+          started_at_epoch_ms: 11_000,
+          completed_at_epoch_ms: null,
+          display_completed_at_epoch_ms: undefined as unknown as null,
+          duration_ms: null,
+          display_duration_ms: undefined as unknown as null,
+        }),
+      ],
+    })
+
+    const bars = screen.getAllByTestId('step-gantt-bar')
+    expect(bars[0]).toHaveStyle({ left: '0%', width: '33.33333333333333%' })
+    expect(bars[1]).toHaveStyle({ left: '66.66666666666666%', width: '33.33333333333333%' })
+    expect(screen.getByText('running…')).toBeInTheDocument()
+  })
 })

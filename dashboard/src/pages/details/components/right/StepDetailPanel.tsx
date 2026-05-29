@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import type { Step } from '../../../../lib/types'
 import {
+  canForkFromStep,
   formatDuration,
   formatTimestamp,
   getStepKind,
@@ -30,6 +31,7 @@ import { DefList } from './DefList'
 interface Props {
   workflowId: string
   step: Step
+  steps: Step[]
   onForkSuccess?: (forkedWorkflowId: string) => void
 }
 
@@ -74,7 +76,7 @@ function SectionLabel({ children }: { children: string }) {
   )
 }
 
-export function StepDetailPanel({ workflowId, step, onForkSuccess }: Props) {
+export function StepDetailPanel({ workflowId, step, steps, onForkSuccess }: Props) {
   const [now, setNow] = useState(Date.now())
   const [forkPending, setForkPending] = useState(false)
   const kind = getStepKind(step)
@@ -107,10 +109,10 @@ export function StepDetailPanel({ workflowId, step, onForkSuccess }: Props) {
   const llmHasIO = kind === 'llm' && (step.llm_input != null || step.llm_output != null)
   const llmHasTokens =
     kind === 'llm' && (step.tokens_in != null || step.tokens_out != null)
-  const canFork = step.step_id != null
+  const canFork = canForkFromStep(steps, step.step_id)
 
   const handleFork = async () => {
-    if (step.step_id == null || forkPending) return
+    if (!canFork || forkPending || step.step_id == null) return
     setForkPending(true)
     try {
       const result = await forkWorkflow(workflowId, step.step_id)
@@ -151,7 +153,7 @@ export function StepDetailPanel({ workflowId, step, onForkSuccess }: Props) {
             title={
               canFork
                 ? 'Creates a new workflow from this step and runs it. This workflow stays unchanged.'
-                : 'Fork requires a step ID'
+                : 'Fork requires a complete attempted step history through this step.'
             }
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold border-2 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 ${
               !canFork || forkPending

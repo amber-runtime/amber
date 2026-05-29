@@ -99,6 +99,31 @@ describe('WorkflowHeader', () => {
     expect(screen.getByText('0ms')).toBeInTheDocument()
   })
 
+  it('keeps header duration tied to the forked workflow start even with old inherited steps', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(14_000)
+
+    render(
+      <WorkflowHeader
+        workflow={makeWorkflow({
+          status: 'PENDING',
+          created_at: 10_000,
+          updated_at: 10_000,
+          forked_from: 'wf-source',
+        })}
+        steps={[
+          makeStep({
+            step_id: 1,
+            started_at_epoch_ms: 1_000,
+            completed_at_epoch_ms: 2_000,
+          }),
+        ]}
+      />,
+    )
+
+    expect(screen.getByText('4.0s')).toBeInTheDocument()
+  })
+
   it('enables resume only for resumable statuses and cancel only for pending', () => {
     // True ERROR: DBOS resume SQL excludes ERROR rows, so the button stays disabled.
     const { rerender } = render(

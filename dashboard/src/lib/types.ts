@@ -19,6 +19,8 @@ export interface Step {
   display_started_at_epoch_ms: number | null
   display_completed_at_epoch_ms: number | null
   display_duration_ms: number | null
+  timeline_started_at_epoch_ms?: number | null
+  timeline_completed_at_epoch_ms?: number | null
   step_output: unknown | null
   agent_name: string | null
   llm_model: string | null
@@ -37,6 +39,7 @@ export interface WorkflowInfo {
   status: WorkflowStatus
   created_at: number
   updated_at: number
+  forked_from?: string | null
   recovery_attempts: number | null   // raw DBOS counter; 1 = first run, no recovery
   attempts: number | null
   recoveries: number                 // derived: max(0, recovery_attempts - 1)

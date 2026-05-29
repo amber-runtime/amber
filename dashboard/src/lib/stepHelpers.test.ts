@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { setPricing } from './pricingStore'
 import {
+  buildTimelineSteps,
+  canForkFromStep,
   computeDowntimeBarGeometry,
   computeWorkflowWindow,
   computeCostBreakdown,
@@ -242,6 +244,145 @@ describe('stepHelpers', () => {
     ).toEqual({ start: 0, end: 8_000 })
   })
 
+  it('expands workflow windows to include inherited forked step history', () => {
+    const timelineSteps = buildTimelineSteps(
+      makeWorkflow({
+        status: 'SUCCESS',
+        created_at: 5_000,
+        updated_at: 9_000,
+        forked_from: 'wf-source',
+      }),
+      [
+        makeStep({
+          step_id: 1,
+          started_at_epoch_ms: 1_000,
+          completed_at_epoch_ms: 2_000,
+        }),
+        makeStep({
+          step_id: 2,
+          started_at_epoch_ms: 6_000,
+          completed_at_epoch_ms: 7_000,
+        }),
+      ],
+    )
+
+    expect(
+      computeWorkflowWindow(
+        makeWorkflow({
+          status: 'SUCCESS',
+          created_at: 5_000,
+          updated_at: 9_000,
+          forked_from: 'wf-source',
+        }),
+        timelineSteps,
+      ),
+    ).toEqual({ start: 4_000, end: 9_000 })
+  })
+
+  it('does not stretch pending forked-history windows to the wall clock when no step is running', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(500_000)
+    const timelineSteps = buildTimelineSteps(
+      makeWorkflow({
+        status: 'PENDING',
+        created_at: 5_000,
+        updated_at: 9_000,
+        forked_from: 'wf-source',
+      }),
+      [
+        makeStep({
+          step_id: 1,
+          started_at_epoch_ms: 1_000,
+          completed_at_epoch_ms: 2_000,
+        }),
+        makeStep({
+          step_id: 2,
+          started_at_epoch_ms: 6_000,
+          completed_at_epoch_ms: 7_000,
+        }),
+      ],
+    )
+
+    expect(
+      computeWorkflowWindow(
+        makeWorkflow({
+          status: 'PENDING',
+          created_at: 5_000,
+          updated_at: 9_000,
+          forked_from: 'wf-source',
+        }),
+        timelineSteps,
+      ),
+    ).toEqual({ start: 4_000, end: 9_000 })
+  })
+
+  it('keeps pending windows live when a step is still running', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(12_000)
+    const timelineSteps = buildTimelineSteps(
+      makeWorkflow({
+        status: 'PENDING',
+        created_at: 10_000,
+        updated_at: 10_000,
+        forked_from: 'wf-source',
+      }),
+      [
+        makeStep({
+          step_id: 1,
+          started_at_epoch_ms: 1_000,
+          completed_at_epoch_ms: 2_000,
+        }),
+        makeStep({
+          step_id: 2,
+          started_at_epoch_ms: 11_000,
+          completed_at_epoch_ms: null,
+          display_completed_at_epoch_ms: undefined as unknown as null,
+          duration_ms: null,
+          display_duration_ms: undefined as unknown as null,
+        }),
+      ],
+    )
+
+    expect(
+      computeWorkflowWindow(
+        makeWorkflow({
+          status: 'PENDING',
+          created_at: 10_000,
+          updated_at: 10_000,
+          forked_from: 'wf-source',
+        }),
+        timelineSteps,
+      ),
+    ).toEqual({ start: 9_000, end: 14_000 })
+  })
+
+  it('rebases only the inherited prefix and preserves current raw step timing', () => {
+    const steps = buildTimelineSteps(
+      makeWorkflow({
+        created_at: 10_000,
+        updated_at: 10_000,
+        forked_from: 'wf-source',
+      }),
+      [
+        makeStep({
+          step_id: 1,
+          started_at_epoch_ms: 1_000,
+          completed_at_epoch_ms: 2_000,
+        }),
+        makeStep({
+          step_id: 2,
+          started_at_epoch_ms: 11_000,
+          completed_at_epoch_ms: 12_000,
+        }),
+      ],
+    )
+
+    expect(steps[0].timeline_started_at_epoch_ms).toBe(9_000)
+    expect(steps[0].timeline_completed_at_epoch_ms).toBe(10_000)
+    expect(steps[1].timeline_started_at_epoch_ms).toBeUndefined()
+    expect(steps[1].timeline_completed_at_epoch_ms).toBeUndefined()
+  })
+
   it('converts downtime intervals into clipped gantt geometry', () => {
     expect(
       computeDowntimeBarGeometry(
@@ -362,5 +503,28 @@ describe('stepHelpers', () => {
         10_000,
       ),
     ).toBeNull()
+  })
+
+  it('requires a contiguous attempted prefix before allowing a fork', () => {
+    expect(
+      canForkFromStep(
+        [
+          makeStep({ step_id: 1 }),
+          makeStep({ step_id: 2 }),
+          makeStep({ step_id: 3 }),
+        ],
+        3,
+      ),
+    ).toBe(true)
+
+    expect(
+      canForkFromStep(
+        [
+          makeStep({ step_id: 1 }),
+          makeStep({ step_id: 3 }),
+        ],
+        3,
+      ),
+    ).toBe(false)
   })
 })

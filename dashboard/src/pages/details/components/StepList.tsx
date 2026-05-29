@@ -8,6 +8,7 @@ import type {
 } from '../../../lib/types'
 import type { DowntimeInterval } from '../../../lib/stepHelpers'
 import {
+  buildTimelineSteps,
   computeWorkflowWindow,
   errorDowntimeInterval,
   filterStepsBySearch,
@@ -51,7 +52,8 @@ export function StepList({
   selectedStepId,
   onStepClick,
 }: Props) {
-  const groups = useMemo(() => groupStepsByAgent(steps), [steps])
+  const timelineSteps = useMemo(() => buildTimelineSteps(workflow, steps), [workflow, steps])
+  const groups = useMemo(() => groupStepsByAgent(timelineSteps), [timelineSteps])
   const [nowMs, setNowMs] = useState(() => Date.now())
   const refreshAnchorByStartRef = useRef(new Map<number, string>())
 
@@ -82,8 +84,8 @@ export function StepList({
   }, [groups])
 
   const matchingStepIds = useMemo(
-    () => filterStepsBySearch(steps, searchQuery),
-    [steps, searchQuery],
+    () => filterStepsBySearch(timelineSteps, searchQuery),
+    [timelineSteps, searchQuery],
   )
   const searching = searchQuery.trim() !== ''
 
@@ -181,10 +183,10 @@ export function StepList({
   const window = useMemo(
     () => computeWorkflowWindow(
       { ...workflow, status: effectiveStatus },
-      steps,
+      timelineSteps,
       hasActiveDowntime ? nowMs : null,
     ),
-    [workflow, effectiveStatus, steps, hasActiveDowntime, nowMs],
+    [workflow, effectiveStatus, timelineSteps, hasActiveDowntime, nowMs],
   )
   const workflowIsActive =
     !hasActiveDowntime && isWorkflowActivelyRunning(effectiveStatus)
@@ -233,7 +235,7 @@ export function StepList({
         onCollapseAll={handleCollapseAll}
       />
 
-      {steps.length > 1 && <TimeAxis start={window.start} end={window.end} />}
+      {timelineSteps.length > 1 && <TimeAxis start={window.start} end={window.end} />}
 
       {renderedGroups.length === 0 ? (
         <div className="bg-slate-900 border border-slate-800 rounded-lg px-5 py-8 text-center">

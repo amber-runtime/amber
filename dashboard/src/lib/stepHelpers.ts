@@ -183,6 +183,46 @@ export function stepDurationMs(step: Step): number | null {
   return step.duration_ms
 }
 
+export function stepTimelineStartedAtMs(step: Step): number | null {
+  if (step.timeline_started_at_epoch_ms !== undefined) return step.timeline_started_at_epoch_ms
+  return stepStartedAtMs(step)
+}
+
+export function stepTimelineCompletedAtMs(step: Step): number | null {
+  if (step.timeline_completed_at_epoch_ms !== undefined) return step.timeline_completed_at_epoch_ms
+  return stepCompletedAtMs(step)
+}
+
+export function buildTimelineSteps(workflow: WorkflowInfo, steps: Step[]): Step[] {
+  if (workflow.forked_from == null || !Number.isFinite(workflow.created_at)) return steps
+
+  let inheritedPrefixEnd: number | null = null
+  let inheritedPrefixLength = 0
+  for (const step of steps) {
+    const baseStart = stepStartedAtMs(step)
+    const baseEnd = stepCompletedAtMs(step)
+    const marker = baseEnd ?? baseStart
+    if (marker == null || marker >= workflow.created_at) break
+    inheritedPrefixLength += 1
+    inheritedPrefixEnd = Math.max(inheritedPrefixEnd ?? marker, marker)
+  }
+
+  if (inheritedPrefixLength === 0 || inheritedPrefixEnd == null) return steps
+
+  const shiftMs = workflow.created_at - inheritedPrefixEnd
+  if (shiftMs === 0) return steps
+
+  return steps.map((step, index) => {
+    if (index >= inheritedPrefixLength) return step
+    const baseStart = stepStartedAtMs(step)
+    const baseEnd = stepCompletedAtMs(step)
+    return {
+      ...step,
+      timeline_started_at_epoch_ms: baseStart != null ? baseStart + shiftMs : null,
+      timeline_completed_at_epoch_ms: baseEnd != null ? baseEnd + shiftMs : null,
+    }
+  })
+}
 
 export function groupStepsByAgent(steps: Step[]): AgentGroup[] {
   if (steps.length === 0) return []
@@ -269,7 +309,7 @@ function isFiniteNumber(n: unknown): n is number {
 function stepDerivedEnd(steps: Step[], fallback: number): number {
   if (steps.length === 0) return fallback
   const last = steps[steps.length - 1]
-  return stepCompletedAtMs(last) ?? stepStartedAtMs(last) ?? fallback
+  return stepTimelineCompletedAtMs(last) ?? stepTimelineStartedAtMs(last) ?? fallback
 }
 
 export function computeWorkflowWindow(
@@ -277,11 +317,34 @@ export function computeWorkflowWindow(
   steps: Step[],
   visualEndOverrideMs: number | null = null,
 ): { start: number; end: number } {
+  const earliestStepStart = steps.reduce<number | null>((earliest, step) => {
+    const startedAt = stepTimelineStartedAtMs(step)
+    if (!isFiniteNumber(startedAt)) return earliest
+    if (earliest == null) return startedAt
+    return Math.min(earliest, startedAt)
+  }, null)
+
   const start = isFiniteNumber(workflow.created_at)
-    ? workflow.created_at
-    : (steps[0] != null ? stepStartedAtMs(steps[0]) : null) ?? Date.now()
+    ? earliestStepStart != null
+      ? Math.min(workflow.created_at, earliestStepStart)
+      : workflow.created_at
+    : earliestStepStart ?? Date.now()
 
   const isTerminal = TERMINAL_WORKFLOW_STATUSES.has(workflow.status)
+  const hasIncompleteStep = steps.some((step) => stepCompletedAtMs(step) == null)
+  const latestTimelineActivity = steps.reduce<number | null>((latest, step) => {
+    const candidates = [
+      stepTimelineStartedAtMs(step),
+      stepTimelineCompletedAtMs(step),
+      step.duration_ms != null && stepTimelineStartedAtMs(step) != null
+        ? (stepTimelineStartedAtMs(step) as number) + step.duration_ms
+        : null,
+    ].filter((value): value is number => value != null)
+    for (const timestamp of candidates) {
+      if (latest == null || timestamp > latest) latest = timestamp
+    }
+    return latest
+  }, null)
   let end: number
   if (isFiniteNumber(visualEndOverrideMs)) {
     end = visualEndOverrideMs
@@ -289,11 +352,28 @@ export function computeWorkflowWindow(
     end = isFiniteNumber(workflow.updated_at)
       ? workflow.updated_at
       : stepDerivedEnd(steps, start)
+  } else if (hasIncompleteStep) {
+    end = Date.now()
+  } else if (latestTimelineActivity != null) {
+    end = latestTimelineActivity
   } else {
     end = Date.now()
   }
 
   return { start, end: Math.max(end, start + WORKFLOW_WINDOW_MIN_MS) }
+}
+
+export function canForkFromStep(steps: Step[], selectedStepId: number | null): boolean {
+  if (selectedStepId == null || selectedStepId < 1) return false
+  const attemptedStepIds = new Set(
+    steps
+      .map((step) => step.step_id)
+      .filter((stepId): stepId is number => stepId != null),
+  )
+  for (let stepId = 1; stepId <= selectedStepId; stepId++) {
+    if (!attemptedStepIds.has(stepId)) return false
+  }
+  return true
 }
 
 export function computeStepBarGeometry(
@@ -302,9 +382,9 @@ export function computeStepBarGeometry(
   workflowEnd: number,
 ): StepBarGeometry {
   const totalDuration = Math.max(workflowEnd - workflowStart, 1)
-  const stepStart = stepStartedAtMs(step) ?? workflowStart
-  const inProgress = stepCompletedAtMs(step) == null
-  const stepEnd = stepCompletedAtMs(step) ?? workflowEnd
+  const stepStart = stepTimelineStartedAtMs(step) ?? workflowStart
+  const inProgress = stepTimelineCompletedAtMs(step) == null
+  const stepEnd = stepTimelineCompletedAtMs(step) ?? workflowEnd
   const leftPct = ((stepStart - workflowStart) / totalDuration) * 100
   const widthPct = Math.max(((stepEnd - stepStart) / totalDuration) * 100, BAR_MIN_WIDTH_PCT)
   return { leftPct, widthPct, inProgress }

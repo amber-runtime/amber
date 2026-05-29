@@ -4,10 +4,13 @@ import { makeStep } from '../../../../test/fixtures'
 import { StepDetailPanel } from './StepDetailPanel'
 
 describe('StepDetailPanel', () => {
+  const allSteps = [makeStep()]
+
   it('renders LLM I/O and token details', () => {
     render(
       <StepDetailPanel
         workflowId="wf-test"
+        steps={allSteps}
         step={makeStep({
           llm_input: [{ role: 'user', content: 'Plan a launch' }],
           llm_output: [{ role: 'assistant', content: 'Launch plan ready' }],
@@ -34,6 +37,7 @@ describe('StepDetailPanel', () => {
     render(
       <StepDetailPanel
         workflowId="wf-test"
+        steps={allSteps}
         step={makeStep({
           event_type: 'tool_call',
           function_name: 'search_web',
@@ -57,6 +61,7 @@ describe('StepDetailPanel', () => {
     const { rerender } = render(
       <StepDetailPanel
         workflowId="wf-test"
+        steps={allSteps}
         step={makeStep({
           status: 'ERROR',
           error_message: 'Validation failed',
@@ -70,6 +75,7 @@ describe('StepDetailPanel', () => {
     rerender(
       <StepDetailPanel
         workflowId="wf-test"
+        steps={allSteps}
         step={makeStep({
           status: 'ERROR',
           error_message: null,
@@ -89,6 +95,7 @@ describe('StepDetailPanel', () => {
     render(
       <StepDetailPanel
         workflowId="wf-test"
+        steps={allSteps}
         step={makeStep({
           function_name: 'DBOS.sleep',
           event_type: 'step',
@@ -109,5 +116,45 @@ describe('StepDetailPanel', () => {
     })
 
     expect(screen.getByText('5.0')).toBeInTheDocument()
+  })
+
+  it('disables forking when earlier steps are missing from the attempted prefix', () => {
+    const steps = [
+      makeStep({ step_id: 1 }),
+      makeStep({ step_id: 3 }),
+    ]
+
+    render(
+      <StepDetailPanel
+        workflowId="wf-test"
+        steps={steps}
+        step={steps[1]}
+      />,
+    )
+
+    const button = screen.getByRole('button', { name: /fork as new run/i })
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute(
+      'title',
+      'Fork requires a complete attempted step history through this step.',
+    )
+  })
+
+  it('keeps forking enabled when the attempted prefix is contiguous', () => {
+    const steps = [
+      makeStep({ step_id: 1 }),
+      makeStep({ step_id: 2 }),
+      makeStep({ step_id: 3 }),
+    ]
+
+    render(
+      <StepDetailPanel
+        workflowId="wf-test"
+        steps={steps}
+        step={steps[2]}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /fork as new run/i })).toBeEnabled()
   })
 })

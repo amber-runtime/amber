@@ -134,6 +134,7 @@ class DashboardClientTests(unittest.IsolatedAsyncioTestCase):
                 "status": "SUCCESS",
                 "created_at": 1,
                 "updated_at": 2,
+                "forked_from": None,
                 "output": None,
                 "recovery_attempts": None,
             }
@@ -165,6 +166,7 @@ class DashboardClientTests(unittest.IsolatedAsyncioTestCase):
                 "status": "SUCCESS",
                 "created_at": 1,
                 "updated_at": 2,
+                "forked_from": None,
                 "output": None,
                 "recovery_attempts": None,
             },

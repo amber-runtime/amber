@@ -20,6 +20,7 @@ def _wf_to_dict(
         "created_at": workflow.created_at,
         "updated_at": workflow.updated_at,
         "recovery_attempts": getattr(workflow, "recovery_attempts", None),
+        "forked_from": getattr(workflow, "forked_from", None),
     }
     if include_output:
         output = getattr(workflow, "output", None)

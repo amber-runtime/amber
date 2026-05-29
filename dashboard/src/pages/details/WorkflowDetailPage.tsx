@@ -226,6 +226,7 @@ export function WorkflowDetailPage() {
                   <StepDetailPanel
                     workflowId={data.workflow.workflow_id}
                     step={selectedStep}
+                    steps={data.steps}
                     onForkSuccess={handleForkSuccess}
                   />
                 ) : (

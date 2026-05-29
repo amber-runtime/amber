@@ -54,6 +54,22 @@ describe('StepRow', () => {
     expect(screen.getByTestId('downtime-gantt-bar')).toHaveClass('bg-red-500/85')
   })
 
+  it('uses timeline-only timestamps for gantt placement without affecting row duration text', () => {
+    renderRow({
+      step: makeStep({
+        started_at_epoch_ms: 1_000,
+        completed_at_epoch_ms: 2_000,
+        timeline_started_at_epoch_ms: 4_000,
+        timeline_completed_at_epoch_ms: 6_000,
+        duration_ms: 1_000,
+      }),
+      workflowIsActive: false,
+    })
+
+    expect(screen.getByTestId('step-gantt-bar')).toHaveStyle({ left: '40%', width: '20%' })
+    expect(screen.getByText('1.0s')).toBeInTheDocument()
+  })
+
   it('extends unresolved downtime with the current timeline clock', () => {
     const { rerender } = render(
       <StepRow
