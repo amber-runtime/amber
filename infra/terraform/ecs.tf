@@ -228,3 +228,66 @@ resource "aws_ecs_service" "customer_app" {
 
   depends_on = [aws_lb_listener.http]
 }
+
+# ── Customer Worker (port 8004, no ALB) ──────────────────────────────────────
+
+resource "aws_ecs_task_definition" "customer_worker" {
+  family                   = "${var.project_name}-${var.environment}-customer-worker"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = "512"  # 0.5 vCPU — runs agents, same as API
+  memory                   = "1024" # 1 GB
+  execution_role_arn       = aws_iam_role.ecs_execution.arn
+  task_role_arn            = aws_iam_role.ecs_execution.arn
+
+  container_definitions = jsonencode([{
+    name  = "customer-worker"
+    image = "${aws_ecr_repository.customer_worker.repository_url}:latest"
+
+    portMappings = [{
+      containerPort = 8004
+      protocol      = "tcp"
+    }]
+
+    environment = []
+    secrets     = local.common_secrets
+
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        awslogs-group         = aws_cloudwatch_log_group.customer_worker.name
+        awslogs-region        = var.region
+        awslogs-stream-prefix = "customer-worker"
+      }
+    }
+
+    healthCheck = {
+      command     = ["CMD-SHELL", "curl -sf http://localhost:8004/health || exit 1"]
+      interval    = 30
+      timeout     = 5
+      retries     = 3
+      startPeriod = 60
+    }
+  }])
+}
+
+resource "aws_cloudwatch_log_group" "customer_worker" {
+  name              = "/ecs/${var.project_name}-${var.environment}/customer-worker"
+  retention_in_days = 30
+}
+
+resource "aws_ecs_service" "customer_worker" {
+  name            = "${var.project_name}-${var.environment}-customer-worker"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.customer_worker.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets         = module.vpc.private_subnets
+    security_groups = [aws_security_group.customer_worker.id]
+    assign_public_ip = false
+  }
+
+  # No load_balancer block — worker doesn't serve external traffic
+}

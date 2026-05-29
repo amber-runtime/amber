@@ -255,7 +255,7 @@ def deploy(env: str, no_build: bool, no_infra: bool, no_frontend: bool, service:
     # ── Step 2: Docker build + push ────────────────────────────────────────────
     if not no_build:
         console.print("[bold cyan]Step 2/4: Building Docker images[/bold cyan]")
-        services_to_build = list(service) if service else ["dashboard-api", "customer-app"]
+        services_to_build = list(service) if service else ["dashboard-api", "customer-app", "customer-worker"]
         _ecr_login(account_id, region)
         _build_and_push_images(services_to_build, account_id, region, prefix, repo_root)
         console.print()
@@ -268,6 +268,7 @@ def deploy(env: str, no_build: bool, no_infra: bool, no_frontend: bool, service:
     ecs_services = [
         f"{prefix}-dashboard-api",
         f"{prefix}-customer-app",
+        f"{prefix}-customer-worker",
     ]
     _restart_ecs(cluster, ecs_services, region)
     console.print()

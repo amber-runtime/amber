@@ -1,0 +1,46 @@
+# =============================================================================
+# Customer Worker — consumes agent-runs queue (DBOS + OpenAI Agents)
+# =============================================================================
+# Build from repo root:
+#   docker build -f infra/docker/Dockerfile.customer-worker -t customer-worker .
+# Run:
+#   docker run -p 8004:8004 --env-file .env customer-worker
+# =============================================================================
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# System deps for psycopg2 + health checks
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Layer 1: dependencies (cached unless pyproject/lock/sdk change)
+COPY pyproject.toml uv.lock ./
+COPY sdk/pyproject.toml sdk/
+COPY sdk/src/        sdk/src/
+
+RUN uv sync --frozen --no-dev
+
+# Layer 2: application code
+COPY sdk/                  sdk/
+COPY example_customer_app/ example_customer_app/
+
+# Worker entrypoint with HTTP health server
+COPY infra/docker/run_worker.py run_worker.py
+
+EXPOSE 8004
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -sf http://localhost:8004/health || exit 1
+
+ENV WORKER_TARGET=example_customer_app.main:agent_runtime
+ENV HEALTH_PORT=8004
+
+CMD ["uv", "run", "python", "run_worker.py"]

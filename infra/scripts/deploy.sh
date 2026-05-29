@@ -51,6 +51,10 @@ case "$ACTION" in
       --cluster amber-dev \
       --service amber-dev-customer-app \
       --force-new-deployment --no-cli-pager
+    aws ecs update-service \
+      --cluster amber-dev \
+      --service amber-dev-customer-worker \
+      --force-new-deployment --no-cli-pager
 
     echo "==> Deploying frontend..."
     bash infra/scripts/deploy-frontend.sh

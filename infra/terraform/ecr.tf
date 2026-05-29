@@ -28,4 +28,16 @@ resource "aws_ecr_repository" "customer_app" {
   tags = { Name = "${var.project_name}-${var.environment}-customer-app" }
 }
 
+resource "aws_ecr_repository" "customer_worker" {
+  name = "${var.project_name}-${var.environment}-customer-worker"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  force_delete = true
+
+  tags = { Name = "${var.project_name}-${var.environment}-customer-worker" }
+}
+
 

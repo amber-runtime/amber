@@ -77,3 +77,28 @@ resource "aws_security_group" "customer_app" {
 
   tags = { Name = "${var.project_name}-${var.environment}-customer-app" }
 }
+
+# --- Customer Worker Security Group ---
+resource "aws_security_group" "customer_worker" {
+  name        = "${var.project_name}-${var.environment}-customer-worker"
+  description = "Customer Worker - queue consumer for agent runs"
+  vpc_id      = module.vpc.vpc_id
+
+  ingress {
+    description = "Health check from VPC"
+    from_port   = 8004
+    to_port     = 8004
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
+  egress {
+    description = "Outbound internet (NAT)"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = { Name = "${var.project_name}-${var.environment}-customer-worker" }
+}
