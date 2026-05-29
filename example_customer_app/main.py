@@ -19,6 +19,8 @@ from pydantic import BaseModel, Field
 
 # Import agent modules so their @register_agent workflows are registered.
 from .user_agents import (
+    account_research_error_demo,
+    account_research_error_demo_v2,
     another_multi_agent_demo,
     multi_agent_demo,
     error_agent_demo,
@@ -34,6 +36,10 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+ASSET_VERSION = max(
+    int((BASE_DIR / "static" / "app.js").stat().st_mtime),
+    int((BASE_DIR / "static" / "styles.css").stat().st_mtime),
+)
 
 
 class RunRequest(BaseModel):
@@ -43,6 +49,8 @@ class RunRequest(BaseModel):
             "travel-concierge",
             "research-handoff-agent",
             "enterprise-onboarding-error-demo",
+            "account-research-error-demo",
+            "account-research-error-demo-v2",
         ]
     )
     input: str
@@ -103,6 +111,26 @@ KNOWN_AGENT_CAPABILITIES = {
             "approval are required before production rollout."
         ),
     },
+    "account-research-error-demo": {
+        "display_name": "Account Research Error Demo",
+        "description": (
+            "A multi-agent pre-call research workflow that takes a rare enterprise "
+            "deep-scan branch and fails at a transient DDGSException rate-limit step. "
+            "Shows email sent before crash, then fork + log fix + backoff fix."
+        ),
+        "category": "Ops Demo",
+        "sample_input": account_research_error_demo.SAMPLE_INPUT,
+    },
+    "account-research-error-demo-v2": {
+        "display_name": "Account Research Error Demo V2",
+        "description": (
+            "A simplified durable account-research demo: fast standard research, "
+            "one irreversible brief email, then a rare enterprise deep scan that "
+            "fails with ConnectionError until you fork, add logs, and add backoff."
+        ),
+        "category": "Ops Demo",
+        "sample_input": account_research_error_demo_v2.SAMPLE_INPUT,
+    },
 }
 TRAVEL_AGENT_NAME = "travel-concierge"
 
@@ -156,6 +184,27 @@ def _arm_enterprise_failure_input(run_input: str) -> str:
     return run_input
 
 
+def _should_arm_account_research_ratelimit(
+    agent: str,
+    *,
+    trigger_account_research_ratelimit: bool,
+) -> bool:
+    return (
+        agent in {"account-research-error-demo", "account-research-error-demo-v2"}
+        and trigger_account_research_ratelimit
+    )
+
+
+def _arm_account_research_ratelimit_input(agent: str, run_input: str) -> str:
+    # Injects both the enterprise branch and the rate-limit simulation directives.
+    # The rate-limit fires based on query timing inside the deep-scan step, so
+    # forks with the logger uncommented still fail, and only forks with the
+    # sleep uncommented succeed.
+    if agent == "account-research-error-demo-v2":
+        return account_research_error_demo_v2.enable_account_research_failure_demo(run_input)
+    return account_research_error_demo.enable_account_research_failure_demo(run_input)
+
+
 agent_runtime = AgentRuntime()
 
 app = FastAPI(
@@ -183,6 +232,7 @@ async def index(request: Request):
                 "Research vendors, prepare decision memos, plan business travel, and "
                 "demo durable enterprise onboarding recovery from one AI workspace."
             ),
+            "asset_version": ASSET_VERSION,
         },
     )
 
@@ -259,6 +309,28 @@ RUN_REQUEST_EXAMPLES = {
             ),
         },
     },
+    "account_research_error_demo": {
+        "summary": "Account research error demo",
+        "description": (
+            "Run the enterprise pre-call research workflow with an optional transient "
+            "DDGSException at the deep competitive scan step."
+        ),
+        "value": {
+            "agent": "account-research-error-demo",
+            "input": account_research_error_demo.SAMPLE_INPUT,
+        },
+    },
+    "account_research_error_demo_v2": {
+        "summary": "Account research error demo v2",
+        "description": (
+            "Run the simplified enterprise pre-call research workflow with an optional "
+            "ConnectionError at the deep competitive scan step."
+        ),
+        "value": {
+            "agent": "account-research-error-demo-v2",
+            "input": account_research_error_demo_v2.SAMPLE_INPUT,
+        },
+    },
 }
 
 
@@ -279,6 +351,13 @@ async def create_run(
             "at the fatal compliance handoff step."
         ),
     ),
+    trigger_account_research_ratelimit: bool = Query(
+        default=False,
+        description=(
+            "Demo-only: force the enterprise branch and arm a one-shot "
+            "ConnectionError at deep scan query 3 for the account-research demos."
+        ),
+    ),
 ) -> RunResponse:
     run_input = request.input
     if _should_arm_travel_crash(
@@ -291,6 +370,11 @@ async def create_run(
         fail_compliance_handoff=fail_compliance_handoff,
     ):
         run_input = _arm_enterprise_failure_input(run_input)
+    if _should_arm_account_research_ratelimit(
+        request.agent,
+        trigger_account_research_ratelimit=trigger_account_research_ratelimit,
+    ):
+        run_input = _arm_account_research_ratelimit_input(request.agent, run_input)
 
     handle = await agent_runtime.agents.start(request.agent, run_input)
     return RunResponse(workflow_id=handle.workflow_id, agent=request.agent)

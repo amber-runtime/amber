@@ -77,6 +77,13 @@
                 <small>Guarantee the onboarding demo hits the fatal compliance handoff step.</small>
               </span>
             </label>
+            <label id="account-research-ratelimit-control" class="demo-toggle" for="account-research-ratelimit-toggle" hidden>
+              <input id="account-research-ratelimit-toggle" type="checkbox" checked>
+              <span>
+                <strong>Fail deep scan on rate limit</strong>
+                <small>Force the enterprise branch and fail the account-research demo at deep scan query 3.</small>
+              </span>
+            </label>
             <div class="form-footer">
               <p id="selected-description" class="selected-description">
                 Pick an operations workflow to start.
@@ -126,6 +133,10 @@
       </section>
     </main>
 
+<<<<<<< HEAD
     <script src="static/app.js"></script>
+=======
+    <script src="{{ url_for('static', path='/app.js') }}?v={{ asset_version }}"></script>
+>>>>>>> 665a766 (feat: add account-reseach demo agent to demo fork feature, WIP - will consolidate demo agents)
   </body>
 </html>

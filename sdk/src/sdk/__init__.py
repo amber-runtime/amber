@@ -15,6 +15,7 @@ from .dashboard import (
 from .decorators import (
     RegisteredAgent,
     agent_runner,
+    current_workflow_id,
     get_registered_agent,
     list_registered_agents,
     logger,
@@ -44,6 +45,7 @@ __all__ = [
     "sleep",
     "logger",
     "agent_runner",
+    "current_workflow_id",
     "get_registered_agent",
     "list_registered_agents",
     "list_workflows",
