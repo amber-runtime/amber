@@ -1,7 +1,6 @@
 import {
   Brain,
   Clock,
-  Search,
   Wrench,
   CheckCircle2,
   XCircle,
@@ -34,8 +33,6 @@ function StepIcon({ step }: { step: Step }) {
   const cls = 'shrink-0'
   if (kind === 'llm') return <Brain size={13} className={`${cls} text-slate-400`} />
   if (kind === 'sleep') return <Clock size={13} className={`${cls} text-slate-600`} />
-  if (step.tool_name === 'search_web' || step.function_name === 'search_web')
-    return <Search size={13} className={`${cls} text-emerald-400`} />
   return <Wrench size={13} className={`${cls} text-sky-400`} />
 }
 

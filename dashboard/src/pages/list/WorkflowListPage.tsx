@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { RefreshCw, CheckCircle2, XCircle, AlertCircle, Loader2 } from 'lucide-react'
+import {
+  RefreshCw,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  Loader2,
+  Clock,
+  ChevronDown,
+} from 'lucide-react'
 import type { WorkflowStatus } from '../../lib/types'
 import { useWorkflows } from '../../lib/workflowContext'
 import {
@@ -136,12 +144,42 @@ export function WorkflowListPage() {
         }
       />
 
-      <div className="max-w-5xl mx-auto px-6 py-5">
-        <SearchInput
-          value={searchQuery}
-          onChange={setSearchQuery}
-          placeholder="Search by name or ID..."
-        />
+      <div className="max-w-[1320px] mx-auto px-6 py-5">
+        {/* Search + time-range row */}
+        <div className="flex items-center gap-3 mb-4">
+          {/* Search flexes to fill; neutralize SearchInput's own bottom margin */}
+          <div className="flex-1 min-w-0 [&>div]:mb-0">
+            <SearchInput
+              value={searchQuery}
+              onChange={setSearchQuery}
+              placeholder="Search by name or ID..."
+            />
+          </div>
+
+          {/* Compact time-range dropdown (was a pill row) */}
+          <div className="relative shrink-0">
+            <Clock
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none"
+            />
+            <select
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value as DateFilter)}
+              aria-label="Time range"
+              className="appearance-none w-40 pl-9 pr-9 py-2 bg-slate-900 border border-slate-800 rounded-md text-sm text-slate-200 focus:outline-none focus:border-slate-700 cursor-pointer"
+            >
+              {(Object.keys(DATE_LABELS) as DateFilter[]).map((d) => (
+                <option key={d} value={d}>
+                  {DATE_LABELS[d]}
+                </option>
+              ))}
+            </select>
+            <ChevronDown
+              size={14}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none"
+            />
+          </div>
+        </div>
 
         {/* Status filter chips */}
         <div className="flex items-center gap-2 mb-4 flex-wrap">
@@ -151,28 +189,11 @@ export function WorkflowListPage() {
               onClick={() => setFilter(f)}
               className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                 filter === f
-                  ? 'bg-amber-500 text-slate-950 font-medium'
+                  ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/15'
                   : 'bg-slate-900 text-slate-300 border border-slate-800 hover:bg-slate-800'
               }`}
             >
               {FILTER_LABELS[f]}
-            </button>
-          ))}
-        </div>
-
-        {/* Date filter chips */}
-        <div className="flex items-center gap-2 mb-4 flex-wrap">
-          {(Object.keys(DATE_LABELS) as DateFilter[]).map((d) => (
-            <button
-              key={d}
-              onClick={() => setDateFilter(d)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                dateFilter === d
-                  ? 'bg-amber-500 text-slate-950 font-medium'
-                  : 'bg-slate-900 text-slate-300 border border-slate-800 hover:bg-slate-800'
-              }`}
-            >
-              {DATE_LABELS[d]}
             </button>
           ))}
         </div>
@@ -222,23 +243,23 @@ export function WorkflowListPage() {
                   )}
               </div>
             ) : (
-              <table className="w-full border-collapse">
+              <table className="w-full table-fixed border-collapse">
                 <thead>
                   <tr className="border-b border-slate-800">
-                    <th className="pl-4 pr-2 py-2.5 w-8" />
+                    <th className="pl-4 pr-2 py-2.5 w-10" />
                     <th className="pr-4 py-2.5 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">
                       Workflow
                     </th>
-                    <th className="pr-4 py-2.5 text-right text-xs font-medium text-slate-400 uppercase tracking-wide whitespace-nowrap">
+                    <th className="pr-4 py-2.5 w-36 text-left text-xs font-medium text-slate-400 uppercase tracking-wide whitespace-nowrap">
                       Started
                     </th>
-                    <th className="pr-4 py-2.5 text-right text-xs font-medium text-slate-400 uppercase tracking-wide">
+                    <th className="pr-4 py-2.5 w-36 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">
                       Duration
                     </th>
-                    <th className="pr-4 py-2.5 text-right text-xs font-medium text-slate-400 uppercase tracking-wide">
+                    <th className="pr-4 py-2.5 w-36 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">
                       Status
                     </th>
-                    <th className="pr-4 py-2.5 text-right text-xs font-medium text-slate-400 uppercase tracking-wide">
+                    <th className="pr-4 py-2.5 w-36 text-right text-xs font-medium text-slate-400 uppercase tracking-wide">
                       Retried
                     </th>
                   </tr>
@@ -253,7 +274,7 @@ export function WorkflowListPage() {
                       <td className="pl-4 pr-2 py-3.5">
                         <StatusIcon status={w.status} />
                       </td>
-                      <td className="pr-4 py-3.5 max-w-xs">
+                      <td className="pr-4 py-3.5">
                         <p className="text-sm font-medium text-slate-50 truncate">
                           {humanizeWorkflowName(w.name)}
                         </p>
@@ -261,13 +282,13 @@ export function WorkflowListPage() {
                           {shortWorkflowId(w.workflow_id)}
                         </span>
                       </td>
-                      <td className="pr-4 py-3.5 text-xs text-slate-300 whitespace-nowrap text-right">
+                      <td className="pr-4 py-3.5 text-xs text-slate-300 whitespace-nowrap text-left">
                         {formatRelativeTime(w.created_at)}
                       </td>
-                      <td className="pr-4 py-3.5 text-xs font-mono text-slate-300 text-right whitespace-nowrap">
+                      <td className="pr-4 py-3.5 text-xs font-mono text-slate-300 text-left whitespace-nowrap">
                         {formatWorkflowDuration(w, now)}
                       </td>
-                      <td className="pr-4 py-3.5 text-right">
+                      <td className="pr-4 py-3.5 text-left">
                         <StatusBadge status={w.status} />
                       </td>
                       <td className="pr-4 py-3.5 text-right">
