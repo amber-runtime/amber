@@ -237,7 +237,17 @@ async def cancel_workflow(workflow_id: str):
 async def fork_workflow(workflow_id: str, request: ForkWorkflowRequest):
     if request.start_step < 1:
         raise HTTPException(status_code=422, detail="start_step must be >= 1")
-    return await get_dashboard_client().fork_workflow(workflow_id, request.start_step)
+    client = get_dashboard_client()
+    workflow = await client.get_workflow(workflow_id)
+    if workflow is None:
+        raise HTTPException(
+            status_code=404, detail=f"Workflow {workflow_id!r} not found"
+        )
+    return await client.fork_workflow(
+        workflow_id,
+        request.start_step,
+        queue_name=workflow.get("queue_name"),
+    )
 
 
 def _pricing_is_fresh(db_url: str) -> bool:

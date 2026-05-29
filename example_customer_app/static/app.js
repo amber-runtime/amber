@@ -14,8 +14,8 @@ const taskInput = document.querySelector("#task-input");
 const taskForm = document.querySelector("#task-form");
 const travelCrashControl = document.querySelector("#travel-crash-control");
 const travelCrashToggle = document.querySelector("#travel-crash-toggle");
-const enterpriseHandoffFailureControl = document.querySelector("#enterprise-handoff-failure-control");
-const enterpriseHandoffFailureToggle = document.querySelector("#enterprise-handoff-failure-toggle");
+const accountResearchRatelimitControl = document.querySelector("#account-research-ratelimit-control");
+const accountResearchRatelimitToggle = document.querySelector("#account-research-ratelimit-toggle");
 const submitButton = document.querySelector("#submit-button");
 const requestList = document.querySelector("#request-list");
 const requestCount = document.querySelector("#request-count");
@@ -35,7 +35,7 @@ const MAX_VISIBLE_REQUESTS = 25;
 const PENDING_REQUEST_KEY = "operationsResearchHub.pendingRequest";
 const PENDING_REQUESTS_KEY = "operationsResearchHub.pendingRequests";
 const TRAVEL_AGENT_NAME = "travel-concierge";
-const ENTERPRISE_ERROR_DEMO_AGENT_NAME = "enterprise-onboarding-error-demo";
+const ACCOUNT_RESEARCH_ERROR_DEMO_AGENT_NAME = "account-research-error-demo";
 
 function setError(message) {
   if (!message) {
@@ -327,14 +327,14 @@ function selectAgent(agentName, replaceInput) {
   selectedDescription.textContent = agent.description;
   submitButton.disabled = false;
   const canCrashDuringHotel = agent.name === TRAVEL_AGENT_NAME;
-  const canFailEnterpriseHandoff = agent.name === ENTERPRISE_ERROR_DEMO_AGENT_NAME;
+  const canFailAccountResearchDeepScan = agent.name === ACCOUNT_RESEARCH_ERROR_DEMO_AGENT_NAME;
   travelCrashControl.hidden = !canCrashDuringHotel;
   travelCrashToggle.disabled = !canCrashDuringHotel;
-  enterpriseHandoffFailureControl.hidden = !canFailEnterpriseHandoff;
-  enterpriseHandoffFailureToggle.disabled = !canFailEnterpriseHandoff;
+  accountResearchRatelimitControl.hidden = !canFailAccountResearchDeepScan;
+  accountResearchRatelimitToggle.disabled = !canFailAccountResearchDeepScan;
   if (!canCrashDuringHotel) travelCrashToggle.checked = false;
-  if (!canFailEnterpriseHandoff) {
-    enterpriseHandoffFailureToggle.checked = false;
+  if (!canFailAccountResearchDeepScan) {
+    accountResearchRatelimitToggle.checked = true;
   }
 
   if (replaceInput || !taskInput.value.trim()) {
@@ -398,10 +398,10 @@ taskForm.addEventListener("submit", async (event) => {
     const query = new URLSearchParams();
     if (shouldCrashDuringHotel) query.set("crash_during_hotel", "true");
     if (
-      state.selectedAgent.name === ENTERPRISE_ERROR_DEMO_AGENT_NAME &&
-      enterpriseHandoffFailureToggle.checked
+      state.selectedAgent.name === ACCOUNT_RESEARCH_ERROR_DEMO_AGENT_NAME &&
+      accountResearchRatelimitToggle.checked
     ) {
-      query.set("fail_compliance_handoff", "true");
+      query.set("trigger_account_research_ratelimit", "true");
     }
     const runsUrl = query.size > 0 ? `/runs?${query.toString()}` : "/runs";
     const response = await fetch(runsUrl, {

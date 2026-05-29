@@ -8,6 +8,7 @@ Run worker in another terminal:
   uv run python -m sdk.worker example_customer_app.main:agent_runtime
 """
 
+import logging
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -19,9 +20,9 @@ from pydantic import BaseModel, Field
 
 # Import agent modules so their @register_agent workflows are registered.
 from .user_agents import (
+    account_research_error_demo,
     another_multi_agent_demo,
     multi_agent_demo,
-    error_agent_demo,
     single_agent_demo,  # noqa: F401
 )
 from sdk import (
@@ -34,6 +35,10 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+ASSET_VERSION = max(
+    int((BASE_DIR / "static" / "app.js").stat().st_mtime),
+    int((BASE_DIR / "static" / "styles.css").stat().st_mtime),
+)
 
 
 class RunRequest(BaseModel):
@@ -42,7 +47,7 @@ class RunRequest(BaseModel):
             "research-assistant",
             "travel-concierge",
             "research-handoff-agent",
-            "enterprise-onboarding-error-demo",
+            "account-research-error-demo",
         ]
     )
     input: str
@@ -90,21 +95,88 @@ KNOWN_AGENT_CAPABILITIES = {
             "departing 2026-07-10 and returning 2026-07-13, budget $3000."
         ),
     },
-    "enterprise-onboarding-error-demo": {
-        "display_name": "Enterprise Onboarding Error Demo",
+    "account-research-error-demo": {
+        "display_name": "Account Research Error Demo",
         "description": (
-            "A multi-agent onboarding workflow that can take a rare compliance branch "
-            "and fail at a fatal external handoff step."
+            "A multi-agent pre-call research workflow that sends the AE brief, then "
+            "takes a rare enterprise deep-scan branch and fails with ConnectionError "
+            "until you fork, add logs, and add backoff."
         ),
         "category": "Ops Demo",
-        "sample_input": (
-            "Prepare an onboarding plan for Northstar Health, an enterprise customer "
-            "with 1800 seats across the US and EU. Procurement review and compliance "
-            "approval are required before production rollout."
-        ),
+        "sample_input": account_research_error_demo.SAMPLE_INPUT,
     },
 }
 TRAVEL_AGENT_NAME = "travel-concierge"
+_ACCOUNT_RESEARCH_DEMO_ERROR_TEXT = (
+    "Error running tool scrape_deep_competitive_signals: "
+    "Remote end closed connection without response"
+)
+
+
+def _is_account_research_demo_exception(exc: object) -> bool:
+    return _ACCOUNT_RESEARCH_DEMO_ERROR_TEXT in str(exc)
+
+
+class _SuppressAccountResearchDemoTraceback(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not record.exc_info:
+            return True
+
+        exc_type, exc, _tb = record.exc_info
+        if exc_type is None or exc is None:
+            return True
+
+        if (
+            record.getMessage().startswith("Exception encountered in asynchronous workflow")
+            and _is_account_research_demo_exception(exc)
+        ):
+            return False
+
+        return True
+
+
+class _SuppressAccountResearchDemoAsyncioNoise(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        if not message.startswith("Future exception was never retrieved"):
+            return True
+
+        if _ACCOUNT_RESEARCH_DEMO_ERROR_TEXT in message:
+            return False
+
+        if record.exc_info and record.exc_info[1] and _is_account_research_demo_exception(record.exc_info[1]):
+            return False
+
+        return True
+
+
+def _install_account_research_demo_log_filter() -> None:
+    traceback_filter = _SuppressAccountResearchDemoTraceback()
+    asyncio_filter = _SuppressAccountResearchDemoAsyncioNoise()
+
+    dbos_logger = logging.getLogger("dbos")
+    if not getattr(dbos_logger, "_account_research_demo_filter_installed", False):
+        dbos_logger.addFilter(traceback_filter)
+        dbos_logger._account_research_demo_filter_installed = True
+
+    asyncio_logger = logging.getLogger("asyncio")
+    if not getattr(asyncio_logger, "_account_research_demo_filter_installed", False):
+        asyncio_logger.addFilter(asyncio_filter)
+        asyncio_logger._account_research_demo_filter_installed = True
+
+    root_logger = logging.getLogger()
+    if not getattr(root_logger, "_account_research_demo_filter_installed", False):
+        for handler in root_logger.handlers:
+            handler.addFilter(traceback_filter)
+            handler.addFilter(asyncio_filter)
+        root_logger._account_research_demo_filter_installed = True
+
+
+def _install_account_research_demo_exception_suppression() -> None:
+    _install_account_research_demo_log_filter()
+
+
+_install_account_research_demo_exception_suppression()
 
 
 def _humanize_agent_name(name: str) -> str:
@@ -141,22 +213,24 @@ def _arm_travel_crash_input(agent: str, run_input: str) -> str:
     return run_input
 
 
-def _should_fail_compliance_handoff(
+def _should_arm_account_research_ratelimit(
     agent: str,
     *,
-    fail_compliance_handoff: bool,
+    trigger_account_research_ratelimit: bool,
 ) -> bool:
-    return agent == "enterprise-onboarding-error-demo" and fail_compliance_handoff
+    return agent == "account-research-error-demo" and trigger_account_research_ratelimit
 
 
-def _arm_enterprise_failure_input(run_input: str) -> str:
-    # The failure toggle should guarantee this exact fatal path regardless of prompt wording.
-    run_input = error_agent_demo.enable_enterprise_compliance_branch(run_input)
-    run_input = error_agent_demo.enable_compliance_handoff_failure(run_input)
-    return run_input
+def _arm_account_research_ratelimit_input(run_input: str) -> str:
+    # Injects both the enterprise branch and the rate-limit simulation directives.
+    # The rate-limit fires based on query timing inside the deep-scan step, so
+    # forks with the logger uncommented still fail, and only forks with the
+    # sleep uncommented succeed.
+    return account_research_error_demo.enable_account_research_failure_demo(run_input)
 
 
 agent_runtime = AgentRuntime()
+
 
 app = FastAPI(
     title="Customer App with Checkpoint SDK",
@@ -181,8 +255,9 @@ async def index(request: Request):
             "title": "Operations Research Hub",
             "subtitle": (
                 "Research vendors, prepare decision memos, plan business travel, and "
-                "demo durable enterprise onboarding recovery from one AI workspace."
+                "debug durable multi-agent workflows from one AI workspace."
             ),
+            "asset_version": ASSET_VERSION,
         },
     )
 
@@ -244,19 +319,15 @@ RUN_REQUEST_EXAMPLES = {
             ),
         },
     },
-    "enterprise_onboarding_error_demo": {
-        "summary": "Enterprise onboarding error demo",
+    "account_research_error_demo": {
+        "summary": "Account research error demo",
         "description": (
-            "Run the rare-branch enterprise onboarding workflow with an optional fatal "
-            "compliance handoff failure."
+            "Run the enterprise pre-call research workflow with an optional transient "
+            "ConnectionError at the deep competitive scan step."
         ),
         "value": {
-            "agent": "enterprise-onboarding-error-demo",
-            "input": (
-                "Prepare an onboarding plan for Northstar Health, an enterprise customer "
-                "with 1800 seats across the US and EU. Procurement review and compliance "
-                "approval are required before production rollout."
-            ),
+            "agent": "account-research-error-demo",
+            "input": account_research_error_demo.SAMPLE_INPUT,
         },
     },
 }
@@ -272,11 +343,11 @@ async def create_run(
             "travel-concierge hotel quote lookup."
         ),
     ),
-    fail_compliance_handoff: bool = Query(
+    trigger_account_research_ratelimit: bool = Query(
         default=False,
         description=(
-            "Demo-only: guarantee enterprise-onboarding-error-demo reaches and fails "
-            "at the fatal compliance handoff step."
+            "Demo-only: force the enterprise branch and arm a one-shot "
+            "ConnectionError at deep scan query 3 for the account-research demo."
         ),
     ),
 ) -> RunResponse:
@@ -286,11 +357,11 @@ async def create_run(
         crash_during_hotel=crash_during_hotel,
     ):
         run_input = _arm_travel_crash_input(request.agent, run_input)
-    if _should_fail_compliance_handoff(
+    if _should_arm_account_research_ratelimit(
         request.agent,
-        fail_compliance_handoff=fail_compliance_handoff,
+        trigger_account_research_ratelimit=trigger_account_research_ratelimit,
     ):
-        run_input = _arm_enterprise_failure_input(run_input)
+        run_input = _arm_account_research_ratelimit_input(run_input)
 
     handle = await agent_runtime.agents.start(request.agent, run_input)
     return RunResponse(workflow_id=handle.workflow_id, agent=request.agent)

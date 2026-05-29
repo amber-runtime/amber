@@ -156,8 +156,14 @@ class DashboardClient:
         self,
         workflow_id: str,
         start_step: int,
+        *,
+        queue_name: str | None = None,
     ) -> dict[str, str | int | bool]:
-        handle = await self._client.fork_workflow_async(workflow_id, start_step)
+        handle = await self._client.fork_workflow_async(
+            workflow_id,
+            start_step,
+            queue_name=queue_name,
+        )
         return {
             "workflow_id": workflow_id,
             "forked_workflow_id": handle.get_workflow_id(),

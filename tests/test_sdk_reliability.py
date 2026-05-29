@@ -1,10 +1,12 @@
 import ast
+import json
 import importlib.util
 import os
 import pickle
 import sys
 import tempfile
 import types
+import asyncio
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1086,6 +1088,7 @@ class DemoRegistrationTests(unittest.TestCase):
         sdk = types.ModuleType("sdk")
         sdk.register_agent = self.decorators.register_agent
         sdk.agent_runner = self.decorators.agent_runner
+        sdk.current_workflow_id = self.decorators.current_workflow_id
         sdk.logger = self.decorators.logger
         sdk.sleep = self.decorators.sleep
         sdk.step = self.decorators.step
@@ -1333,47 +1336,148 @@ class DemoRegistrationTests(unittest.TestCase):
         self.assertNotIn("RANDOM_TRAVEL_CRASH_RATE", source)
         self.assertNotIn("random.random", source)
 
-    def test_enterprise_branch_is_deterministic_from_account_signals(self):
+    def test_account_research_helpers_append_and_strip_directives(self):
         demo = load_module(
-            "enterprise_onboarding_branch_under_test",
-            "example_customer_app/user_agents/error_agent_demo.py",
+            "account_research_error_demo_directives_under_test",
+            "example_customer_app/user_agents/account_research_error_demo.py",
         )
 
-        standard = demo.normalize_onboarding_request(
-            "Prepare onboarding notes for Acorn Software with 220 seats in the US."
+        armed = demo.enable_account_research_failure_demo(
+            "Research Meridian Logistics before our enterprise call."
         )
-        enterprise = demo.normalize_onboarding_request(
-            "Prepare onboarding notes for Northstar Health, an enterprise customer "
-            "with 1800 seats across the US and EU. Procurement review required."
-        )
+        cleaned, force_branch, trigger_ratelimit = demo._extract_demo_directives(armed)
 
         self.assertEqual(
-            demo.determine_workflow_branch(standard, force_enterprise_branch=False),
-            "standard_onboarding",
+            cleaned,
+            "Research Meridian Logistics before our enterprise call.",
         )
-        self.assertEqual(
-            demo.determine_workflow_branch(enterprise, force_enterprise_branch=False),
-            "enterprise_compliance",
-        )
-        self.assertEqual(
-            demo.determine_workflow_branch(standard, force_enterprise_branch=True),
-            "enterprise_compliance",
-        )
-
-    def test_enterprise_demo_helpers_append_and_strip_directives(self):
-        demo = load_module(
-            "enterprise_onboarding_directives_under_test",
-            "example_customer_app/user_agents/error_agent_demo.py",
-        )
-
-        armed = demo.enable_enterprise_failure_demo("Start onboarding for Northstar Health")
-        cleaned, force_branch, fail_handoff = demo._extract_demo_directives(armed)
-
-        self.assertEqual(cleaned, "Start onboarding for Northstar Health")
         self.assertTrue(force_branch)
-        self.assertTrue(fail_handoff)
+        self.assertTrue(trigger_ratelimit)
 
-    def test_enterprise_failure_is_only_armed_by_explicit_toggle(self):
+    def test_sdk_current_workflow_id_reads_dbos_context(self):
+        decorators = load_module(
+            "sdk_decorators_current_workflow_id_under_test",
+            "sdk/src/sdk/decorators.py",
+        )
+        self.DBOS.workflow_id = "sdk-workflow-123"
+
+        self.assertEqual(decorators.current_workflow_id(), "sdk-workflow-123")
+
+    def test_account_research_deep_scan_fails_on_third_query_when_armed(self):
+        demo = load_module(
+            "account_research_error_demo_failure_under_test",
+            "example_customer_app/user_agents/account_research_error_demo.py",
+        )
+        self.DBOS.workflow_id = "account-research-deep-scan-fail"
+        demo._ratelimit_workflows.add(self.DBOS.workflow_id)
+
+        with mock.patch.object(
+            demo.time,
+            "monotonic",
+            side_effect=[i / 100 for i in range(40)],
+        ):
+            with self.assertRaisesRegex(
+                ConnectionError,
+                "Remote end closed connection without response",
+            ):
+                demo.scrape_deep_competitive_signals(
+                    "Meridian Logistics",
+                    "logistics",
+                )
+
+    def test_account_research_deep_scan_succeeds_without_ratelimit(self):
+        demo = load_module(
+            "account_research_error_demo_success_under_test",
+            "example_customer_app/user_agents/account_research_error_demo.py",
+        )
+        self.DBOS.workflow_id = "account-research-deep-scan-ok"
+        demo._ratelimit_workflows.clear()
+
+        with mock.patch.object(
+            demo.time,
+            "monotonic",
+            side_effect=[i / 100 for i in range(80)],
+        ):
+            result = demo.scrape_deep_competitive_signals(
+                "Meridian Logistics",
+                "logistics",
+            )
+
+        parsed = json.loads(result)
+        self.assertEqual(parsed["query_count"], 5)
+        self.assertEqual(len(parsed["signals"]), 5)
+
+    def test_account_research_email_receipt_uses_workflow_id(self):
+        demo = load_module(
+            "account_research_error_demo_receipt_under_test",
+            "example_customer_app/user_agents/account_research_error_demo.py",
+        )
+        self.DBOS.workflow_id = "account-research-1"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            receipt_dir = Path(tmpdir)
+            with mock.patch.object(demo, "OUTREACH_RECEIPT_DIR", receipt_dir):
+                receipt = demo.send_account_brief_email(
+                    "ae@example.com",
+                    "Meridian Logistics",
+                    "Short brief",
+                )
+
+            receipt_path = receipt_dir / "account-research-1.json"
+            self.assertTrue(receipt_path.exists())
+            parsed = json.loads(receipt)
+            self.assertEqual(parsed["workflow_id"], "account-research-1")
+            self.assertEqual(parsed["status"], "sent")
+
+    def test_account_research_workflow_propagates_failure_when_armed(self):
+        demo = load_module(
+            "account_research_error_demo_workflow_failure_under_test",
+            "example_customer_app/user_agents/account_research_error_demo.py",
+        )
+
+        async def fake_run_standard_research(_account):
+            return {
+                "news_research": '{"summary":"news"}',
+                "market_positioning": '{"summary":"pricing"}',
+                "tech_stack_signals": '{"summary":"tech"}',
+            }
+
+        async def fake_agent_runner(*, starting_agent, input):
+            name = starting_agent.name
+            if name == "brief_compiler":
+                return types.SimpleNamespace(final_output="brief")
+            if name == "outreach_operator":
+                return types.SimpleNamespace(
+                    final_output=demo.send_account_brief_email(
+                        "ae@amber-demo.example",
+                        "Meridian Logistics",
+                        "brief",
+                    )
+                )
+            if name == "deep_scan_agent":
+                return types.SimpleNamespace(
+                    final_output=demo.scrape_deep_competitive_signals(
+                        "Meridian Logistics",
+                        "logistics",
+                    )
+                )
+            raise AssertionError(f"Unexpected agent_runner call for {name}: {input}")
+
+        with (
+            mock.patch.object(demo, "_run_standard_research", side_effect=fake_run_standard_research),
+            mock.patch.object(demo, "agent_runner", side_effect=fake_agent_runner),
+            self.assertRaisesRegex(
+                ConnectionError,
+                "Remote end closed connection without response",
+            ),
+        ):
+            asyncio.run(
+                demo.account_research_error_demo(
+                    demo.enable_account_research_failure_demo(demo.SAMPLE_INPUT)
+                )
+            )
+
+    def test_account_research_failure_toggle_supports_canonical_demo(self):
         source_path = ROOT / "example_customer_app" / "main.py"
         source = source_path.read_text(encoding="utf-8")
         module = ast.parse(source)
@@ -1382,20 +1486,21 @@ class DemoRegistrationTests(unittest.TestCase):
             for node in module.body
             if isinstance(node, ast.FunctionDef)
             and node.name
-            in {"_should_fail_compliance_handoff", "_arm_enterprise_failure_input"}
+            in {
+                "_should_arm_account_research_ratelimit",
+                "_arm_account_research_ratelimit_input",
+            }
         }
         namespace: dict[str, object] = {}
-        error_agent_demo_stub = types.SimpleNamespace(
-            enable_enterprise_compliance_branch=lambda value: f"{value}\n[force]",
-            enable_compliance_handoff_failure=lambda value: f"{value}\n[fail]",
+        namespace["account_research_error_demo"] = types.SimpleNamespace(
+            enable_account_research_failure_demo=lambda value: f"{value}\n[armed]",
         )
-        namespace["error_agent_demo"] = error_agent_demo_stub
         exec(
             compile(
                 ast.Module(
                     [
-                        helpers["_should_fail_compliance_handoff"],
-                        helpers["_arm_enterprise_failure_input"],
+                        helpers["_should_arm_account_research_ratelimit"],
+                        helpers["_arm_account_research_ratelimit_input"],
                     ],
                     [],
                 ),
@@ -1405,23 +1510,22 @@ class DemoRegistrationTests(unittest.TestCase):
             namespace,
         )
 
-        self.assertFalse(
-            namespace["_should_fail_compliance_handoff"](
-                "research-assistant",
-                fail_compliance_handoff=True,
+        self.assertTrue(
+            namespace["_should_arm_account_research_ratelimit"](
+                "account-research-error-demo",
+                trigger_account_research_ratelimit=True,
             )
         )
-        self.assertTrue(
-            namespace["_should_fail_compliance_handoff"](
-                "enterprise-onboarding-error-demo",
-                fail_compliance_handoff=True,
+        self.assertFalse(
+            namespace["_should_arm_account_research_ratelimit"](
+                "research-assistant",
+                trigger_account_research_ratelimit=True,
             )
         )
         self.assertEqual(
-            namespace["_arm_enterprise_failure_input"]("demo request"),
-            "demo request\n[force]\n[fail]",
+            namespace["_arm_account_research_ratelimit_input"]("demo request"),
+            "demo request\n[armed]",
         )
-        self.assertNotIn("force_enterprise_compliance:", source)
 
     def test_hotel_crash_marker_prevents_repeated_crashes(self):
         demo = load_module(

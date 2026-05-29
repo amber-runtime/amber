@@ -208,7 +208,7 @@ class DashboardClientTests(unittest.IsolatedAsyncioTestCase):
         handle.get_workflow_id.return_value = "wf-2"
         client._client.fork_workflow_async = mock.AsyncMock(return_value=handle)
 
-        result = await client.fork_workflow("wf-1", 7)
+        result = await client.fork_workflow("wf-1", 7, queue_name="agent-runs")
 
         self.assertEqual(
             result,
@@ -220,7 +220,11 @@ class DashboardClientTests(unittest.IsolatedAsyncioTestCase):
                 "accepted": True,
             },
         )
-        client._client.fork_workflow_async.assert_awaited_once_with("wf-1", 7)
+        client._client.fork_workflow_async.assert_awaited_once_with(
+            "wf-1",
+            7,
+            queue_name="agent-runs",
+        )
 
 
 class QueueDrainReporterTests(unittest.IsolatedAsyncioTestCase):

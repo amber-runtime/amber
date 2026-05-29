@@ -127,6 +127,10 @@ async def sleep(*args, **kwargs):
     return await DBOS.sleep_async(*args, **kwargs)
 
 
+def current_workflow_id() -> str | None:
+    return DBOS.workflow_id
+
+
 async def agent_runner(*args, **kwargs):
     try:
         return await DBOSRunner.run(*args, **kwargs)
