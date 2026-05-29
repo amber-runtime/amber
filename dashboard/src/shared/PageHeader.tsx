@@ -4,6 +4,8 @@ interface PageHeaderProps {
   actions?: React.ReactNode
 }
 
+export const PAGE_CONTENT_WIDTH_CLASS = 'max-w-[1320px] mx-auto'
+
 export function PageHeader({ actions }: PageHeaderProps) {
   const navClass = ({ isActive }: { isActive: boolean }) =>
     `text-sm font-medium px-1 pb-0.5 border-b-2 transition-colors ${
@@ -14,7 +16,7 @@ export function PageHeader({ actions }: PageHeaderProps) {
 
   return (
     <div className="bg-slate-900 border-b border-slate-800 px-6 py-4">
-      <div className="max-w-5xl mx-auto flex items-center justify-between">
+      <div className={`${PAGE_CONTENT_WIDTH_CLASS} flex items-center justify-between`}>
         <div className="flex items-center gap-4">
           <span className="text-amber-500 font-semibold tracking-tight text-xl">Amber</span>
           <span className="text-slate-700 select-none">·</span>

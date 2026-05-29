@@ -4,7 +4,7 @@ import { RefreshCw, AlertCircle, Loader2 } from 'lucide-react'
 import { fetchQueuedWorkflows } from '../../lib/api'
 import type { QueuedWorkflowSummary } from '../../lib/types'
 import { humanizeWorkflowName, formatRelativeTime, shortWorkflowId } from '../../lib/stepHelpers'
-import { PageHeader } from '../../shared/PageHeader'
+import { PageHeader, PAGE_CONTENT_WIDTH_CLASS } from '../../shared/PageHeader'
 import { StatusBadge, RetriedPill } from '../../shared/workflowStatus'
 import { SearchInput } from '../../shared/SearchInput'
 
@@ -114,7 +114,7 @@ export function QueuedPage() {
         }
       />
 
-      <div className="max-w-5xl mx-auto px-6 py-5">
+      <div className={`${PAGE_CONTENT_WIDTH_CLASS} px-6 py-5`}>
         <SearchInput
           value={searchQuery}
           onChange={setSearchQuery}

@@ -17,7 +17,7 @@ import {
   formatWorkflowDuration,
   shortWorkflowId,
 } from '../../lib/stepHelpers'
-import { PageHeader } from '../../shared/PageHeader'
+import { PageHeader, PAGE_CONTENT_WIDTH_CLASS } from '../../shared/PageHeader'
 import { StatusBadge, RetriedPill } from '../../shared/workflowStatus'
 import { SearchInput } from '../../shared/SearchInput'
 
@@ -144,7 +144,7 @@ export function WorkflowListPage() {
         }
       />
 
-      <div className="max-w-[1320px] mx-auto px-6 py-5">
+      <div className={`${PAGE_CONTENT_WIDTH_CLASS} px-6 py-5`}>
         {/* Search + time-range row */}
         <div className="flex items-center gap-3 mb-4">
           {/* Search flexes to fill; neutralize SearchInput's own bottom margin */}
