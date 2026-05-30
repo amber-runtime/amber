@@ -231,26 +231,7 @@ def deploy(env: str, no_build: bool, no_infra: bool, no_frontend: bool, service:
 
     # Read terraform outputs
     tf_out = _terraform_output(tf_dir)
-    cloudfront_domain = tf_out.get("cloudfront_domain", "")
     bucket = tf_out.get("frontend_bucket_name", f"{prefix}-frontend")
-
-    # Update .env.production with the current CloudFront domain
-    if cloudfront_domain and not no_frontend:
-        env_file = os.path.join(repo_root, "dashboard", ".env.production")
-        if os.path.exists(env_file):
-            with open(env_file) as f:
-                content = f.read()
-            # Replace any cloudfront.net domain with the current one
-            import re
-            updated = re.sub(
-                r"https://[a-z0-9]+\.cloudfront\.net",
-                f"https://{cloudfront_domain}",
-                content,
-            )
-            if updated != content:
-                with open(env_file, "w") as f:
-                    f.write(updated)
-                console.print(f"  Updated .env.production → {cloudfront_domain}")
 
     # ── Step 2: Docker build + push ────────────────────────────────────────────
     if not no_build:
@@ -276,6 +257,7 @@ def deploy(env: str, no_build: bool, no_infra: bool, no_frontend: bool, service:
     # ── Step 4: Deploy frontend ────────────────────────────────────────────────
     if not no_frontend:
         console.print("[bold cyan]Step 4/4: Deploying frontend[/bold cyan]")
+        cloudfront_domain = tf_out.get("cloudfront_domain", "")
         dist_id = _find_cloudfront_dist_id(cloudfront_domain, region)
         if _build_frontend(repo_root):
             _deploy_frontend(bucket, dist_id, repo_root, region)

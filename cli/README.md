@@ -79,8 +79,5 @@ The CLI manages these secrets in AWS:
 
 1. **Terraform** — apply infrastructure changes
 2. **Docker** — build images and push to ECR
-3. **ECS** — force new deployment for both services
+3. **ECS** — force new deployment for backend services
 4. **Frontend** — build React dashboard, sync to S3, invalidate CloudFront
-
-The deploy command also auto-updates `dashboard/.env.production` with the current
-CloudFront domain from terraform output, so fresh deploys always get the right URLs.
