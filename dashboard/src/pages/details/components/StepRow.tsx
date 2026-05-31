@@ -92,11 +92,11 @@ function StepBar({
   return (
     <div
       data-testid="step-gantt-track"
-      className={`relative h-3 rounded-sm overflow-hidden ${
-        hasError ? 'bg-red-500/80' : 'bg-slate-800/60'
+      className={`relative h-3 rounded-sm overflow-hidden bg-slate-800/60 ${
+        hasError ? 'shadow-[inset_0_0_0_1.5px_rgba(239,68,68,0.85)]' : ''
       }`}
     >
-      {!hasError && geom != null && (
+      {geom != null && (
         <span
           data-testid="step-gantt-bar"
           className={`absolute top-0 h-full min-w-[2px] rounded-sm ${barColorClass(step, visuallyRunning)}`}
@@ -131,6 +131,8 @@ export function StepRow({
 
   const rowBg = isSelected
     ? 'bg-slate-800 border-l-amber-500'
+    : hasError
+    ? 'border-l-red-500/80 hover:bg-slate-800/50'
     : 'border-l-transparent hover:bg-slate-800/50'
 
   const nameClass = hasError
