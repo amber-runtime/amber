@@ -5,9 +5,16 @@
 # Copy this file:  cp terraform.tfvars.example terraform.tfvars
 # =============================================================================
 
+# For normal teammate testing, change only these three values.
+# Use a short, lowercase, hyphenated project name to avoid AWS name limits.
 project_name = "amber"
 environment  = "dev"
 region       = "us-east-1"
+
+# The frontend S3 bucket is generated as:
+#   <project_name>-<environment>-<aws_account_id>-frontend
+# Example:
+#   amber-dev-123456789012-frontend
 
 # Database — change the password! Generated password is used if blank.
 db_name     = "app"
@@ -17,3 +24,6 @@ db_username = "dbadmin"
 # RDS sizing — bump for production
 db_instance_class    = "db.t4g.micro"
 db_allocated_storage = 20
+
+# Worker sizing — changing this requires an ECS worker redeploy/restart.
+worker_concurrency = 4

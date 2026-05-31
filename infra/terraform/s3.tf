@@ -6,8 +6,10 @@
 # Bucket is private — CloudFront accesses it via OAC (Origin Access Control).
 # =============================================================================
 
+data "aws_caller_identity" "current" {}
+
 resource "aws_s3_bucket" "frontend" {
-  bucket = "${var.project_name}-${var.environment}-frontend"
+  bucket = "${var.project_name}-${var.environment}-${data.aws_caller_identity.current.account_id}-frontend"
 }
 
 # Allow public read — S3 website hosting needs public access for CloudFront.

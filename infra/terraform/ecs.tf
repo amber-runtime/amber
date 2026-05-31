@@ -1,9 +1,10 @@
 # =============================================================================
-# ECS Fargate — dashboard-api + customer-app
+# ECS Fargate — dashboard-api + customer-app + customer-worker
 # =============================================================================
-# Two services:
+# Three services:
 #   dashboard-api (port 8001) — read-only workflow viewer
 #   customer-app  (port 8003) — agent runtime, triggers workflows
+#   customer-worker (port 8004) — DBOS queue consumer + queue metrics emitter
 #
 # Both run in private subnets behind the ALB. Traffic comes through
 # path-based routing on the ALB.
@@ -258,6 +259,34 @@ resource "aws_ecs_task_definition" "customer_worker" {
       {
         name  = "DBOS__VMID"
         value = "${var.project_name}-${var.environment}-customer-worker"
+      },
+      {
+        name  = "WORKER_CONCURRENCY"
+        value = tostring(var.worker_concurrency)
+      },
+      {
+        name  = "PROJECT_NAME"
+        value = var.project_name
+      },
+      {
+        name  = "ENVIRONMENT"
+        value = var.environment
+      },
+      {
+        name  = "SERVICE_NAME"
+        value = "customer-worker"
+      },
+      {
+        name  = "QUEUE_METRICS_ENABLED"
+        value = "true"
+      },
+      {
+        name  = "QUEUE_METRICS_NAMESPACE"
+        value = "Amber/Queues"
+      },
+      {
+        name  = "QUEUE_METRICS_INTERVAL_SECONDS"
+        value = "60"
       }
     ]
     secrets = local.common_secrets

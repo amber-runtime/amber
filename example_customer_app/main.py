@@ -9,6 +9,7 @@ Run worker in another terminal:
 """
 
 import logging
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -229,7 +230,9 @@ def _arm_account_research_ratelimit_input(run_input: str) -> str:
     return account_research_error_demo.enable_account_research_failure_demo(run_input)
 
 
-agent_runtime = AgentRuntime()
+agent_runtime = AgentRuntime(
+    worker_concurrency=int(os.environ.get("WORKER_CONCURRENCY", "4"))
+)
 
 
 app = FastAPI(

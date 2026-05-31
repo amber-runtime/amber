@@ -77,3 +77,13 @@ variable "db_engine_version" {
   type        = string
   default     = "16.3"
 }
+
+# -----------------------------------------------------------------------------
+# Worker
+# -----------------------------------------------------------------------------
+
+variable "worker_concurrency" {
+  description = "Number of workflows each customer-worker task can run concurrently"
+  type        = number
+  default     = 4
+}

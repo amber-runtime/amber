@@ -3,18 +3,18 @@
 # =============================================================================
 
 # --- RDS Security Group ---
-# Only allows Postgres traffic from resources in the same VPC.
+# Only allows Postgres traffic from the RDS Proxy.
 resource "aws_security_group" "rds" {
   name        = "${var.project_name}-${var.environment}-rds"
-  description = "Allow Postgres from within VPC"
+  description = "Allow Postgres from RDS Proxy"
   vpc_id      = module.vpc.vpc_id
 
   ingress {
-    description = "PostgreSQL from VPC"
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = [var.vpc_cidr]
+    description     = "PostgreSQL from RDS Proxy"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.rds_proxy.id]
   }
 
   egress {
@@ -26,6 +26,35 @@ resource "aws_security_group" "rds" {
   }
 
   tags = { Name = "${var.project_name}-${var.environment}-rds" }
+}
+
+# --- RDS Proxy Security Group ---
+resource "aws_security_group" "rds_proxy" {
+  name        = "${var.project_name}-${var.environment}-rds-proxy"
+  description = "Allow ECS services to connect to RDS Proxy"
+  vpc_id      = module.vpc.vpc_id
+
+  ingress {
+    description = "PostgreSQL from ECS services"
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    security_groups = [
+      aws_security_group.dashboard_api.id,
+      aws_security_group.customer_app.id,
+      aws_security_group.customer_worker.id,
+    ]
+  }
+
+  egress {
+    description = "PostgreSQL to RDS"
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
+  tags = { Name = "${var.project_name}-${var.environment}-rds-proxy" }
 }
 
 # --- Dashboard API Security Group ---

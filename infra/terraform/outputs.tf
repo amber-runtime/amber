@@ -33,10 +33,31 @@ output "rds_db_name" {
   value = var.db_name
 }
 
+output "rds_proxy_endpoint" {
+  description = "RDS Proxy hostname used by ECS database URLs"
+  value       = aws_db_proxy.main.endpoint
+  sensitive   = true
+}
+
 # --- Secrets ---
 output "db_secret_arn" {
-  description = "Secrets Manager ARN — fetch with AWS CLI or SDK"
+  description = "Secrets Manager ARN for the RDS Proxy database URL"
   value       = aws_secretsmanager_secret.db.arn
+}
+
+output "db_credentials_secret_arn" {
+  description = "Secrets Manager ARN for RDS Proxy database credentials"
+  value       = aws_secretsmanager_secret.db_credentials.arn
+}
+
+output "openai_api_key_parameter_name" {
+  description = "SSM parameter name for the OpenAI API key"
+  value       = aws_ssm_parameter.openai_api_key.name
+}
+
+output "aws_region" {
+  description = "AWS region used by this stack"
+  value       = var.region
 }
 
 # --- S3 ---
