@@ -15,6 +15,8 @@ set -euo pipefail
 
 REGION="${AWS_REGION:-us-east-1}"
 TF_DIR="infra/terraform"
+VITE_API_BASE_URL="${VITE_API_BASE_URL:-/dashboard}"
+VITE_CUSTOMER_APP_URL="${VITE_CUSTOMER_APP_URL:-/api}"
 
 cd "$(git rev-parse --show-toplevel)"
 
@@ -26,7 +28,9 @@ cd dashboard
 npm ci
 
 echo "==> Building dashboard..."
-npm run build
+VITE_API_BASE_URL="$VITE_API_BASE_URL" \
+VITE_CUSTOMER_APP_URL="$VITE_CUSTOMER_APP_URL" \
+  npm run build
 
 echo "==> Syncing to S3..."
 aws s3 sync dist/ "s3://${BUCKET}/" --delete

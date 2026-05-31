@@ -188,18 +188,22 @@ cd infra/terraform && terraform output
 terraform output -json
 
 # Restart ECS services (pick up new Docker images)
+REGION="$(terraform -chdir=infra/terraform output -raw aws_region)"
 CLUSTER="$(terraform -chdir=infra/terraform output -raw ecs_cluster_name)"
 aws ecs update-service \
+  --region "$REGION" \
   --cluster "$CLUSTER" \
   --service "$(terraform -chdir=infra/terraform output -raw dashboard_api_service_name)" \
   --force-new-deployment
 
 aws ecs update-service \
+  --region "$REGION" \
   --cluster "$CLUSTER" \
   --service "$(terraform -chdir=infra/terraform output -raw customer_app_service_name)" \
   --force-new-deployment
 
 aws ecs update-service \
+  --region "$REGION" \
   --cluster "$CLUSTER" \
   --service "$(terraform -chdir=infra/terraform output -raw customer_worker_service_name)" \
   --force-new-deployment
@@ -213,13 +217,17 @@ aws cloudfront create-invalidation \
 ## Teardown
 
 ```bash
-# Empty the S3 bucket first (Terraform can't delete non-empty buckets)
-aws s3 rm "s3://$(terraform -chdir=infra/terraform output -raw frontend_bucket_name)" --recursive
-
-# Destroy all infrastructure
+# Destroy all infrastructure. For disposable dev stacks, the frontend bucket
+# uses frontend_bucket_force_destroy=true so Terraform can delete deployed
+# assets and all S3 object versions automatically.
 cd infra/terraform
 terraform destroy
 ```
+
+Set `frontend_bucket_force_destroy = false` for production-like stacks where
+frontend asset versions should not be deleted automatically. In that mode,
+destroying the stack requires explicitly deleting all S3 object versions and
+delete markers before Terraform can remove the bucket.
 
 Note: CloudFront distribution deletion takes ~10-15 minutes. Terraform will wait.
 
