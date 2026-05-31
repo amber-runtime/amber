@@ -44,12 +44,6 @@ SECRET_REGISTRY: dict[str, dict] = {
         "description": "OpenAI API key for LLM calls",
         "env_var": "OPENAI_API_KEY",
     },
-    "dbos-conductor-key": {
-        "type": "ssm",
-        "path": "{ssm_base}/dbos-conductor-key",
-        "description": "DBOS Conductor key for durable execution",
-        "env_var": "DBOS_CONDUCTOR_KEY",
-    },
     "db": {
         "type": "secretsmanager",
         "path": "{secrets_prefix}/db",

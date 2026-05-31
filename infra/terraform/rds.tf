@@ -37,8 +37,8 @@ module "rds" {
 
   allocated_storage     = var.db_allocated_storage
   storage_encrypted     = true
-  storage_type          = "gp3"  # 3000 IOPS baseline included
-  max_allocated_storage = 100    # auto-scaling cap (disable with 0 if unwanted)
+  storage_type          = "gp3" # 3000 IOPS baseline included
+  max_allocated_storage = 100   # auto-scaling cap (disable with 0 if unwanted)
 
   db_name  = var.db_name
   username = var.db_username
@@ -53,14 +53,14 @@ module "rds" {
   create_db_subnet_group = false # VPC module creates it
 
   # Maintenance
-  manage_master_user_password = false  # use our generated password instead
+  manage_master_user_password = false # use our generated password instead
   maintenance_window          = "sun:05:00-sun:06:00"
-  backup_window           = "03:00-04:00"
-  backup_retention_period = 7
-  delete_automated_backups = true
-  deletion_protection     = false # true for production!
-  skip_final_snapshot     = true  # false for production!
-  copy_tags_to_snapshot   = true
+  backup_window               = "03:00-04:00"
+  backup_retention_period     = 7
+  delete_automated_backups    = true
+  deletion_protection         = false # true for production!
+  skip_final_snapshot         = true  # false for production!
+  copy_tags_to_snapshot       = true
 
   # Parameters
   parameters = [

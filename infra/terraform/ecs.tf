@@ -17,9 +17,9 @@ resource "aws_iam_role" "ecs_execution" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect = "Allow"
+      Effect    = "Allow"
       Principal = { Service = "ecs-tasks.amazonaws.com" }
-      Action = "sts:AssumeRole"
+      Action    = "sts:AssumeRole"
     }]
   })
 }
@@ -41,11 +41,10 @@ resource "aws_iam_policy" "ecs_execution_secrets" {
         Resource = [aws_secretsmanager_secret.db.arn]
       },
       {
-        Effect   = "Allow"
-        Action   = ["ssm:GetParameter", "ssm:GetParameters"]
+        Effect = "Allow"
+        Action = ["ssm:GetParameter", "ssm:GetParameters"]
         Resource = [
           aws_ssm_parameter.openai_api_key.arn,
-          aws_ssm_parameter.dbos_conductor_key.arn,
         ]
       },
       {
@@ -84,10 +83,6 @@ locals {
       name      = "OPENAI_API_KEY"
       valueFrom = aws_ssm_parameter.openai_api_key.arn
     },
-    {
-      name      = "DBOS_CONDUCTOR_KEY"
-      valueFrom = aws_ssm_parameter.dbos_conductor_key.arn
-    },
   ]
 }
 
@@ -97,8 +92,8 @@ resource "aws_ecs_task_definition" "dashboard_api" {
   family                   = "${var.project_name}-${var.environment}-dashboard-api"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = "256"  # 0.25 vCPU — lightweight read-only service
-  memory                   = "512"  # 0.5 GB
+  cpu                      = "256" # 0.25 vCPU — lightweight read-only service
+  memory                   = "512" # 0.5 GB
   execution_role_arn       = aws_iam_role.ecs_execution.arn
   task_role_arn            = aws_iam_role.ecs_execution.arn
 
@@ -111,8 +106,13 @@ resource "aws_ecs_task_definition" "dashboard_api" {
       protocol      = "tcp"
     }]
 
-    environment = []
-    secrets     = local.common_secrets
+    environment = [
+      {
+        name  = "DBOS__VMID"
+        value = "${var.project_name}-${var.environment}-dashboard-api"
+      }
+    ]
+    secrets = local.common_secrets
 
     logConfiguration = {
       logDriver = "awslogs"
@@ -146,8 +146,8 @@ resource "aws_ecs_service" "dashboard_api" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets         = module.vpc.private_subnets
-    security_groups = [aws_security_group.dashboard_api.id]
+    subnets          = module.vpc.private_subnets
+    security_groups  = [aws_security_group.dashboard_api.id]
     assign_public_ip = false
   }
 
@@ -180,8 +180,13 @@ resource "aws_ecs_task_definition" "customer_app" {
       protocol      = "tcp"
     }]
 
-    environment = []
-    secrets     = local.common_secrets
+    environment = [
+      {
+        name  = "DBOS__VMID"
+        value = "${var.project_name}-${var.environment}-customer-app"
+      }
+    ]
+    secrets = local.common_secrets
 
     logConfiguration = {
       logDriver = "awslogs"
@@ -215,8 +220,8 @@ resource "aws_ecs_service" "customer_app" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets         = module.vpc.private_subnets
-    security_groups = [aws_security_group.customer_app.id]
+    subnets          = module.vpc.private_subnets
+    security_groups  = [aws_security_group.customer_app.id]
     assign_public_ip = false
   }
 
@@ -249,8 +254,13 @@ resource "aws_ecs_task_definition" "customer_worker" {
       protocol      = "tcp"
     }]
 
-    environment = []
-    secrets     = local.common_secrets
+    environment = [
+      {
+        name  = "DBOS__VMID"
+        value = "${var.project_name}-${var.environment}-customer-worker"
+      }
+    ]
+    secrets = local.common_secrets
 
     logConfiguration = {
       logDriver = "awslogs"
@@ -284,8 +294,8 @@ resource "aws_ecs_service" "customer_worker" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets         = module.vpc.private_subnets
-    security_groups = [aws_security_group.customer_worker.id]
+    subnets          = module.vpc.private_subnets
+    security_groups  = [aws_security_group.customer_worker.id]
     assign_public_ip = false
   }
 

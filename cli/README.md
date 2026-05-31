@@ -17,7 +17,6 @@ amber init --name my-project
 
 # Set secrets
 amber config set openai-api-key
-amber config set dbos-conductor-key
 
 # Check what's configured
 amber config list
@@ -70,7 +69,6 @@ The CLI manages these secrets in AWS:
 | Key | Store | Description |
 |-----|-------|-------------|
 | `openai-api-key` | SSM | OpenAI API key for LLM calls |
-| `dbos-conductor-key` | SSM | DBOS Conductor token |
 | `db` | Secrets Manager | Database connection (read-only, AWS-managed) |
 
 ## Deploy Pipeline

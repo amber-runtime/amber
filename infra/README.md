@@ -166,7 +166,6 @@ Secrets are stored in AWS and are NOT committed to the repo:
 | Secret | Location | Key/Name |
 |--------|----------|----------|
 | OpenAI API key | SSM Parameter Store | `/app/amber/dev/openai-api-key` |
-| DBOS Conductor key | SSM Parameter Store | `/app/amber/dev/dbos-conductor-key` |
 | Database connection URL | Secrets Manager | `amber-dev-db-url` |
 
 ECS tasks fetch these at startup via IAM role permissions.

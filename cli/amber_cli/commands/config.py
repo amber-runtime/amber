@@ -71,7 +71,7 @@ def config_list() -> None:
 def config_set(key: str) -> None:
     """Set a secret value.
 
-    Known keys: openai-api-key, dbos-conductor-key
+    Known keys: openai-api-key
     """
     cfg = load_config()
     if not cfg.name:
