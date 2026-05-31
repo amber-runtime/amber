@@ -148,6 +148,10 @@ class DashboardClient:
         await self._client.resume_workflow_async(workflow_id, queue_name=queue_name)
         return {"workflow_id": workflow_id, "action": "resume", "accepted": True}
 
+    async def delete_workflows(self, workflow_ids: list[str]) -> dict:
+        await self._client.delete_workflows_async(workflow_ids)
+        return {"deleted": len(workflow_ids), "action": "delete", "accepted": True}
+
     async def cancel_workflow(self, workflow_id: str) -> dict[str, str | bool]:
         await self._client.cancel_workflow_async(workflow_id)
         return {"workflow_id": workflow_id, "action": "cancel", "accepted": True}

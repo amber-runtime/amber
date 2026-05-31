@@ -8,10 +8,14 @@ import {
   Loader2,
   Clock,
   ChevronDown,
+  Trash2,
+  Check,
 } from 'lucide-react'
+import { DeleteConfirmModal } from './DeleteConfirmModal'
 import type { WorkflowStatus, WorkflowSummary, QueuedWorkflowSummary } from '../../lib/types'
 import { useWorkflows } from '../../lib/workflowContext'
-import { fetchQueuedWorkflows } from '../../lib/api'
+import { fetchQueuedWorkflows, deleteWorkflows } from '../../lib/api'
+import { showToast } from '../../shared/Toast'
 import {
   humanizeWorkflowName,
   formatRelativeTime,
@@ -22,7 +26,7 @@ import { PageHeader, PAGE_CONTENT_WIDTH_CLASS } from '../../shared/PageHeader'
 import { StatusBadge, RetriedPill } from '../../shared/workflowStatus'
 import { SearchInput } from '../../shared/SearchInput'
 
-type Filter = 'all' | 'completed' | 'running' | 'errored' | 'enqueued'
+type Filter = 'all' | 'completed' | 'running' | 'errored' | 'enqueued' | 'retried'
 
 const FILTER_STATUS: Record<Filter, WorkflowStatus | null> = {
   all: null,
@@ -30,6 +34,7 @@ const FILTER_STATUS: Record<Filter, WorkflowStatus | null> = {
   running: 'PENDING',
   errored: 'ERROR',
   enqueued: 'ENQUEUED',
+  retried: null,
 }
 
 const EMPTY_MESSAGES: Record<Filter, string> = {
@@ -38,6 +43,7 @@ const EMPTY_MESSAGES: Record<Filter, string> = {
   running: 'No running workflows.',
   errored: 'No errored workflows.',
   enqueued: 'No queued workflows.',
+  retried: 'No retried workflows.',
 }
 
 type DateFilter = 'all' | '24h' | '7d' | '30d'
@@ -102,6 +108,9 @@ export function WorkflowListPage() {
   const [dateFilter, setDateFilter] = useState<DateFilter>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [now, setNow] = useState(Date.now())
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   // Queued workflows state + polling
   const [queuedWorkflows, setQueuedWorkflows] = useState<QueuedWorkflowSummary[]>([])
@@ -201,17 +210,20 @@ export function WorkflowListPage() {
     running: preStatusFiltered.filter((w) => w.status === 'PENDING').length,
     errored: preStatusFiltered.filter((w) => w.status === 'ERROR').length,
     enqueued: filteredQueued.length,
+    retried: preStatusFiltered.filter((w) => (w.attempts ?? 0) > 1).length,
   }
 
   const FILTER_LABELS: Record<Filter, string> = {
     all: `All (${counts.all})`,
     completed: `Completed (${counts.completed})`,
     running: `Pending (${counts.running})`,
-    errored: `Errored (${counts.errored})`,
     enqueued: `Enqueued (${counts.enqueued})`,
+    errored: `Errored (${counts.errored})`,
+    retried: `Retried (${counts.retried})`,
   }
 
   const filtered = preStatusFiltered.filter((w) => {
+    if (filter === 'retried') return (w.attempts ?? 0) > 1
     const target = FILTER_STATUS[filter]
     return target === null || w.status === target
   })
@@ -281,7 +293,7 @@ export function WorkflowListPage() {
           {(Object.keys(FILTER_LABELS) as Filter[]).map((f) => (
             <button
               key={f}
-              onClick={() => setFilter(f)}
+              onClick={() => { setFilter(f); setSelectedIds(new Set()) }}
               className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                 filter === f
                   ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/15'
@@ -354,8 +366,33 @@ export function WorkflowListPage() {
                     <th className="pr-4 py-2.5 w-36 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">
                       Status
                     </th>
-                    <th className="pr-4 py-2.5 w-36 text-right text-xs font-medium text-slate-400 uppercase tracking-wide">
+                    <th className="pr-4 py-2.5 w-36 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">
                       Retried
+                    </th>
+                    <th className="pr-4 py-2.5 w-12">
+                      <button
+                        onClick={() =>
+                          setSelectedIds(
+                            displayRows.length > 0 && displayRows.every((w) => selectedIds.has(w.workflow_id))
+                              ? new Set()
+                              : new Set(displayRows.map((w) => w.workflow_id)),
+                          )
+                        }
+                        className={`w-5 h-5 rounded-full border flex items-center justify-center ml-auto transition-colors ${
+                          displayRows.length > 0 && displayRows.every((w) => selectedIds.has(w.workflow_id))
+                            ? 'bg-amber-500 border-amber-500'
+                            : selectedIds.size > 0
+                              ? 'border-amber-500/50 bg-amber-500/20'
+                              : 'border-slate-600 hover:border-slate-400'
+                        }`}
+                      >
+                        {displayRows.length > 0 && displayRows.every((w) => selectedIds.has(w.workflow_id)) && (
+                          <Check size={10} className="text-slate-950" />
+                        )}
+                        {selectedIds.size > 0 && !displayRows.every((w) => selectedIds.has(w.workflow_id)) && displayRows.length > 0 && (
+                          <span className="w-2 h-px bg-amber-400 rounded" />
+                        )}
+                      </button>
                     </th>
                   </tr>
                 </thead>
@@ -364,7 +401,7 @@ export function WorkflowListPage() {
                     <tr
                       key={w.workflow_id}
                       onClick={() => navigate(`/workflows/${w.workflow_id}`)}
-                      className="border-b last:border-b-0 border-slate-800 hover:bg-slate-800/50 cursor-pointer transition-colors"
+                      className="group border-b last:border-b-0 border-slate-800 hover:bg-slate-800/50 cursor-pointer transition-colors"
                     >
                       <td className="pl-4 pr-2 py-3.5">
                         <StatusIcon status={w.status} />
@@ -386,8 +423,26 @@ export function WorkflowListPage() {
                       <td className="pr-4 py-3.5 text-left">
                         <StatusBadge status={w.status} />
                       </td>
-                      <td className="pr-4 py-3.5 text-right">
+                      <td className="pr-4 py-3.5 text-left">
                         <RetriedPill attempts={w.attempts} />
+                      </td>
+                      <td className="pr-4 py-3.5" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() =>
+                            setSelectedIds((prev) => {
+                              const next = new Set(prev)
+                              selectedIds.has(w.workflow_id) ? next.delete(w.workflow_id) : next.add(w.workflow_id)
+                              return next
+                            })
+                          }
+                          className={`w-5 h-5 rounded-full border flex items-center justify-center ml-auto transition-colors ${
+                            selectedIds.has(w.workflow_id)
+                              ? 'bg-amber-500 border-amber-500'
+                              : 'border-slate-600 hover:border-slate-400'
+                          }`}
+                        >
+                          {selectedIds.has(w.workflow_id) && <Check size={10} className="text-slate-950" />}
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -409,6 +464,53 @@ export function WorkflowListPage() {
           </div>
         )}
       </div>
+
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-5 py-2.5 bg-slate-800 border border-slate-700 rounded-full shadow-2xl shadow-black/60 text-sm">
+          <span className="text-slate-300 font-medium tabular-nums">{selectedIds.size} selected</span>
+          <span className="w-px h-4 bg-slate-600" />
+          <button
+            onClick={() => setShowDeleteModal(true)}
+            className="flex items-center gap-1.5 text-red-400 hover:text-red-300 transition-colors"
+          >
+            <Trash2 size={13} />
+            Delete
+          </button>
+          <span className="w-px h-4 bg-slate-600" />
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="text-slate-500 hover:text-slate-300 transition-colors"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {showDeleteModal && (
+        <DeleteConfirmModal
+          count={selectedIds.size}
+          loading={deleting}
+          onCancel={() => setShowDeleteModal(false)}
+          onConfirm={async () => {
+            setDeleting(true)
+            const ids = Array.from(selectedIds)
+            const count = ids.length
+            try {
+              await deleteWorkflows(ids)
+              setShowDeleteModal(false)
+              setSelectedIds(new Set())
+              void refresh()
+              void refreshQueued()
+              showToast(`Deleted ${count} workflow${count !== 1 ? 's' : ''}`)
+            } catch (err) {
+              setShowDeleteModal(false)
+              showToast('Delete failed', err instanceof Error ? err.message : 'Unknown error')
+            } finally {
+              setDeleting(false)
+            }
+          }}
+        />
+      )}
     </div>
   )
 }

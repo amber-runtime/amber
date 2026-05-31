@@ -60,6 +60,15 @@ export async function resumeWorkflow(workflowId: string): Promise<void> {
   await handleResponse<unknown>(res)
 }
 
+export async function deleteWorkflows(workflowIds: string[]): Promise<void> {
+  const res = await fetch(`${API_BASE}/workflows/delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workflow_ids: workflowIds }),
+  })
+  await handleResponse<unknown>(res)
+}
+
 export async function cancelWorkflow(workflowId: string): Promise<void> {
   const res = await fetch(
     `${API_BASE}/workflows/${encodeURIComponent(workflowId)}/cancel`,
