@@ -37,6 +37,12 @@ const PENDING_REQUESTS_KEY = "operationsResearchHub.pendingRequests";
 const TRAVEL_AGENT_NAME = "travel-concierge";
 const ACCOUNT_RESEARCH_ERROR_DEMO_AGENT_NAME = "account-research-error-demo";
 
+function apiUrl(path) {
+  const basePath = (document.body.dataset.apiBasePath || "").replace(/\/+$/, "");
+  const normalizedPath = String(path).replace(/^\/+/, "");
+  return basePath ? `${basePath}/${normalizedPath}` : `/${normalizedPath}`;
+}
+
 function setError(message) {
   if (!message) {
     errorMessage.hidden = true;
@@ -259,7 +265,7 @@ async function pollRunResult(requestId) {
 
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt += 1) {
     try {
-      const response = await fetch(`runs/${encodeURIComponent(request.workflowId)}`);
+      const response = await fetch(apiUrl(`runs/${encodeURIComponent(request.workflowId)}`));
       if (response.ok) {
         const run = await response.json();
         if (run.status === "SUCCESS") {
@@ -347,7 +353,7 @@ function selectAgent(agentName, replaceInput) {
 
 async function loadAgents() {
   try {
-    const response = await fetch("agents");
+    const response = await fetch(apiUrl("agents"));
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
     state.agents = await response.json();
@@ -403,7 +409,7 @@ taskForm.addEventListener("submit", async (event) => {
     ) {
       query.set("trigger_account_research_ratelimit", "true");
     }
-    const runsUrl = query.size > 0 ? `/runs?${query.toString()}` : "/runs";
+    const runsUrl = query.size > 0 ? apiUrl(`runs?${query.toString()}`) : apiUrl("runs");
     const response = await fetch(runsUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

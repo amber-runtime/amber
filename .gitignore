@@ -8,6 +8,7 @@ build/
 cli/build/
 .agents
 *.sqlite
+amber.yaml
 
 # Node
 node_modules/

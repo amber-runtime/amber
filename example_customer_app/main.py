@@ -251,6 +251,10 @@ app.add_middleware(
 
 @app.get("/")
 async def index(request: Request):
+    api_base_path = os.environ.get("PATH_PREFIX", "").rstrip("/")
+    if api_base_path == "/":
+        api_base_path = ""
+
     return templates.TemplateResponse(
         request,
         "index.html",
@@ -261,6 +265,7 @@ async def index(request: Request):
                 "debug durable multi-agent workflows from one AI workspace."
             ),
             "asset_version": ASSET_VERSION,
+            "api_base_path": api_base_path,
         },
     )
 
