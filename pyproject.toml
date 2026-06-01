@@ -8,8 +8,6 @@ dependencies = [
     "jinja2>=3.1",
     "uvicorn>=0.29",
     "requests>=2.31",
-    "beautifulsoup4>=4.12",
-    "inngest>=0.4",
     "dbos>=1.0",
     "pydantic>=2.13.3",
     "sdk",
@@ -17,10 +15,6 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "dbos-openai-agents>=0.3.0",
     "ddgs>=9.0",
-    "openinference-instrumentation-openai>=0.1.47",
-    "opentelemetry-sdk>=1.41.1",
-    "opentelemetry-exporter-otlp>=1.41.1",
-    "openinference-instrumentation-openai-agents>=1.4.3",
     "httpx>=0.28.1",
 ]
 

@@ -30,7 +30,7 @@ RUN uv sync --frozen --no-dev
 
 # Layer 2: application code (only what this service needs)
 COPY sdk/              sdk/
-COPY admin_control_plane/ admin_control_plane/
+COPY admin_dashboard/__init__.py admin_dashboard/dashboard_backend.py admin_dashboard/
 
 # Prefix-stripping middleware for path-based ALB routing
 COPY infra/docker/strip_prefix.py strip_prefix.py
@@ -40,7 +40,7 @@ EXPOSE 8001
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD curl -sf http://localhost:8001/health || exit 1
 
-ENV ASGI_APP=admin_control_plane.dashboard_backend:app
+ENV ASGI_APP=admin_dashboard.dashboard_backend:app
 ENV PATH_PREFIX=/dashboard
 ENV PORT=8001
 
