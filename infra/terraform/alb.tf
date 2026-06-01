@@ -4,7 +4,6 @@
 # Path-based routing on port 80:
 #   /dashboard/*  → dashboard-api  (port 8001)
 #   /api/*        → customer-app   (port 8003)
-#   default       → customer-app   (port 8003)
 #
 # CloudFront sits in front and handles HTTPS termination.
 # =============================================================================
@@ -161,56 +160,6 @@ resource "aws_lb_listener_rule" "customer_app" {
   condition {
     path_pattern {
       values = ["/api/*", "/api"]
-    }
-  }
-
-  condition {
-    http_header {
-      http_header_name = "X-Origin-Verify"
-      values           = [random_password.origin_verify.result]
-    }
-  }
-}
-
-# /demo/*  → customer-app (demo frontend + agent API)
-resource "aws_lb_listener_rule" "customer_app_demo" {
-  listener_arn = aws_lb_listener.http.arn
-  priority     = 210
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.customer_app.arn
-  }
-
-  condition {
-    path_pattern {
-      values = ["/demo/*", "/demo"]
-    }
-  }
-
-  condition {
-    http_header {
-      http_header_name = "X-Origin-Verify"
-      values           = [random_password.origin_verify.result]
-    }
-  }
-}
-
-# Catch-all → customer-app. Replaces the old listener default_action (which
-# forwarded everything) so native customer-app routes like /runs and /agents
-# still work, while the header gate keeps direct ALB hits out.
-resource "aws_lb_listener_rule" "customer_app_default" {
-  listener_arn = aws_lb_listener.http.arn
-  priority     = 900
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.customer_app.arn
-  }
-
-  condition {
-    path_pattern {
-      values = ["/*"]
     }
   }
 

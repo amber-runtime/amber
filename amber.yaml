@@ -3,10 +3,9 @@
 
 name: amber
 
-# Agents are auto-detected from @agent decorators in your code.
-# Override here if needed:
-# agents:
-#   - my-agent
+app: example_customer_app.main:app
+worker: example_customer_app.main:agent_runtime
+path_prefix: /api
 
 # Optional: infrastructure settings (sensible defaults applied)
 # region: us-east-1

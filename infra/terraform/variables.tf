@@ -53,6 +53,27 @@ variable "image_tag" {
   default     = "latest"
 }
 
+variable "asgi_app" {
+  description = "Customer ASGI app target, for example my_app.main:app"
+  type        = string
+}
+
+variable "worker_target" {
+  description = "Customer AgentRuntime target, for example my_app.main:agent_runtime"
+  type        = string
+}
+
+variable "path_prefix" {
+  description = "Public path prefix routed to the customer app"
+  type        = string
+  default     = "/api"
+
+  validation {
+    condition     = startswith(var.path_prefix, "/")
+    error_message = "path_prefix must start with /."
+  }
+}
+
 # -----------------------------------------------------------------------------
 # VPC / Networking
 # -----------------------------------------------------------------------------

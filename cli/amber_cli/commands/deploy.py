@@ -10,12 +10,12 @@ import subprocess
 import time
 from pathlib import Path
 
-import boto3
 import click
-from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError, ProfileNotFound
+from botocore.exceptions import ClientError
 from rich.console import Console
 
 from amber_cli.assets import asset_path
+from amber_cli.aws_auth import AWSAuthError, is_auth_client_error, print_auth_error, require_identity
 from amber_cli.config_loader import find_config_path, load_config, validate_deploy_config
 
 console = Console()
@@ -38,9 +38,6 @@ SERVICE_TO_CONTEXT = {
     "customer-worker": "customer-worker",
 }
 
-BOOTSTRAP_STACK_URL = "https://console.aws.amazon.com/cloudformation/home#/stacks/create/template"
-
-
 def _run(cmd: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, cwd=cwd, check=check, capture_output=True, text=True)
 
@@ -61,41 +58,11 @@ def _ecr_outputs_from_config(cfg, account_id: str, region: str) -> dict[str, str
     }
 
 
-def _session(profile: str, region: str) -> boto3.Session:
-    kwargs = {"region_name": region}
-    if profile:
-        kwargs["profile_name"] = profile
-    return boto3.Session(**kwargs)
-
-
-def _credential_preflight(session: boto3.Session) -> str:
-    try:
-        return session.client("sts").get_caller_identity()["Account"]
-    except (NoCredentialsError, ProfileNotFound) as exc:
-        _print_bootstrap_message(str(exc))
-        raise SystemExit(1) from exc
-    except BotoCoreError as exc:
-        message = str(exc)
-        if "SSOTokenLoadError" in exc.__class__.__name__ or "token" in message.lower():
-            _print_bootstrap_message(message)
-            raise SystemExit(1) from exc
-        raise
-
-
-def _print_bootstrap_message(detail: str) -> None:
-    console.print("[yellow]Amber could not find usable AWS credentials.[/yellow]")
-    console.print(f"  {detail}")
-    console.print()
-    console.print("For pre-release testing, you can create a manual IAM-user helper stack.")
-    console.print("This is not AWS SSO and there is no `amber bootstrap` command yet.")
-    console.print(f"  Launch CloudFormation: {BOOTSTRAP_STACK_URL}")
-    console.print(f"  Template:              {asset_path('bootstrap', 'amber-bootstrap.yaml')}")
-    console.print("  Then run: aws configure --profile amber")
-    console.print("  Finally add `profile: amber` to amber.yaml.")
-
-
 def _handle_aws_error(exc: ClientError) -> None:
     code = exc.response.get("Error", {}).get("Code", "")
+    if is_auth_client_error(exc):
+        print_auth_error(console, AWSAuthError(str(exc)), "amber deploy")
+        raise SystemExit(1) from exc
     if "AccessDenied" in code or "Unauthorized" in code:
         console.print(
             "[red]AWS denied a deploy action. Re-launch or update the manual Amber IAM helper stack "
@@ -225,7 +192,7 @@ def _assemble_build_contexts(repo_root: Path, amber_dir: Path, services: list[st
     return contexts
 
 
-def _ecr_login(session: boto3.Session, account_id: str, region: str) -> None:
+def _ecr_login(session, account_id: str, region: str) -> None:
     try:
         token = session.client("ecr", region_name=region).get_authorization_token()
     except ClientError as exc:
@@ -273,7 +240,7 @@ def _terraform_apply(tf_dir: Path, image_tag: str, targets: list[str] | None = N
         raise SystemExit(1)
 
 
-def _sync_frontend(session: boto3.Session, bucket: str, dist_id: str, region: str) -> None:
+def _sync_frontend(session, bucket: str, dist_id: str, region: str) -> None:
     dist_dir = asset_path("frontend", "dist")
     if not dist_dir.exists():
         console.print("[red]Bundled frontend dist is missing. Run prepare_assets.py first.[/red]")
@@ -333,7 +300,7 @@ def _sync_frontend(session: boto3.Session, bucket: str, dist_id: str, region: st
         console.print("  [green]CloudFront cache invalidated[/green]")
 
 
-def _restart_ecs(session: boto3.Session, cluster: str, services: list[str], region: str) -> None:
+def _restart_ecs(session, cluster: str, services: list[str], region: str) -> None:
     ecs = session.client("ecs", region_name=region)
     for service in services:
         try:
@@ -377,13 +344,21 @@ def deploy(env: str, no_build: bool, no_infra: bool, no_frontend: bool, service:
     tf_dir = amber_dir / "terraform"
     region = cfg.region
     image_tag = _image_tag(repo_root)
+    if cfg.profile:
+        os.environ["AWS_PROFILE"] = cfg.profile
+    os.environ["AWS_REGION"] = region
+    os.environ["AWS_DEFAULT_REGION"] = region
+
+    try:
+        session, identity = require_identity(cfg.profile, region)
+    except AWSAuthError as exc:
+        print_auth_error(console, exc, "amber deploy")
+        raise SystemExit(1) from exc
+    account_id = identity.account
 
     _ensure_gitignore(repo_root)
     _sync_terraform(tf_dir)
     _write_tfvars(tf_dir, cfg, image_tag)
-
-    session = _session(cfg.profile, region)
-    account_id = _credential_preflight(session)
 
     console.print(f"[bold]Amber deploy[/bold] - {cfg.name} ({cfg.environment})")
     console.print(f"  AWS account: {account_id}")

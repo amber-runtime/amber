@@ -6,11 +6,11 @@ import json
 import subprocess
 from pathlib import Path
 
-import boto3
 import click
 from rich.console import Console
 from rich.table import Table
 
+from amber_cli.aws_auth import AWSAuthError, print_auth_error, require_identity
 from amber_cli.config_loader import SECRET_REGISTRY, find_config_path, load_config
 
 console = Console()
@@ -57,10 +57,11 @@ def status(env: str) -> None:
         console.print("[red]  Could not read .amber terraform outputs. Has amber deploy run?[/red]")
         raise SystemExit(1)
 
-    session_kwargs = {"region_name": region}
-    if cfg.profile:
-        session_kwargs["profile_name"] = cfg.profile
-    session = boto3.Session(**session_kwargs)
+    try:
+        session, _ = require_identity(cfg.profile, region)
+    except AWSAuthError as exc:
+        print_auth_error(console, exc, "amber status")
+        raise SystemExit(1) from exc
 
     console.print("[bold cyan]ECS Services[/bold cyan]")
     ecs = session.client("ecs", region_name=region)

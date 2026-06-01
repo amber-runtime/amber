@@ -2,7 +2,7 @@
 
 import click
 
-from amber_cli.commands import deploy, init, config, status
+from amber_cli.commands import auth, deploy, init, config, status
 
 
 @click.group()
@@ -13,6 +13,7 @@ def cli():
 
 
 cli.add_command(init.init)
+cli.add_command(auth.auth)
 cli.add_command(deploy.deploy)
 cli.add_command(config.config)
 cli.add_command(status.status)

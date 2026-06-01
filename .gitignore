@@ -4,6 +4,8 @@ __pycache__
 .env
 .env.load-test
 *.egg-info
+build/
+cli/build/
 .agents
 *.sqlite
 
@@ -13,6 +15,8 @@ dist/
 
 # Terraform (infra/terraform/)
 .terraform/
+.amber/
+cli/amber_cli/assets/
 *.tfstate
 *.tfstate.*
 *.tfvars

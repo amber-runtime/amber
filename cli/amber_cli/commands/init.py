@@ -60,6 +60,6 @@ path_prefix: /api
     click.echo()
     click.echo("Next steps:")
     click.echo("  1. Edit app/worker in amber.yaml")
-    click.echo("  2. Bootstrap AWS credentials if needed")
+    click.echo("  2. Configure AWS access: amber auth setup")
     click.echo("  3. Set your API key:  amber config set openai-api-key")
     click.echo("  4. Deploy:            amber deploy")

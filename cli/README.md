@@ -19,6 +19,7 @@ deploy.
 ```bash
 amber init
 $EDITOR amber.yaml
+amber auth setup
 amber deploy
 amber status
 ```
@@ -89,6 +90,9 @@ amber deploy --service customer-app
 | Command | Description |
 |---------|-------------|
 | `amber init` | Create `amber.yaml` with app and worker entrypoints |
+| `amber auth setup` | Configure AWS access for deploys |
+| `amber auth login` | Refresh the saved AWS SSO session |
+| `amber auth check` | Verify the configured AWS profile |
 | `amber deploy` | Build and deploy to AWS |
 | `amber config list` | Show project info and secret status |
 | `amber config set <key>` | Set a secret in AWS |
@@ -96,29 +100,29 @@ amber deploy --service customer-app
 
 ## AWS Credentials
 
-`amber deploy` uses the normal AWS credential chain through boto3, Terraform,
-Docker ECR login, and the AWS APIs it calls. For AWS SSO, sign in with your
-normal profile and put that profile in `amber.yaml`.
+`amber auth setup` is the friendly AWS setup command. It recommends AWS SSO /
+IAM Identity Center, can guide users through the bundled CloudFormation IAM
+helper when they only have AWS Console admin access, and can verify an existing
+AWS profile.
 
 ```bash
-aws sso login --profile <your-profile>
+amber auth setup
 ```
 
-```yaml
-profile: <your-profile>
-```
-
-For pre-release testing, the bundled CloudFormation template can create a
-manual IAM user and access key for deploys. It is a manual helper template, not
-AWS SSO and not an `amber bootstrap` command.
+For returning SSO users whose session expired:
 
 ```bash
-aws configure --profile amber
+amber auth login
 ```
 
-```yaml
-profile: amber
+To check the currently configured profile:
+
+```bash
+amber auth check
 ```
+
+`amber auth setup` writes the selected `profile` and `region` into `amber.yaml`.
+It never writes secrets into `amber.yaml`.
 
 ## Secrets
 
