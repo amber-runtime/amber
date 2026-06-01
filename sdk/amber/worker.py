@@ -23,7 +23,7 @@ def _load_target(target: str) -> Any:
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if len(args) != 1:
-        raise SystemExit("Usage: python -m sdk.worker module:agent_runtime")
+        raise SystemExit("Usage: python -m amber.worker module:agent_runtime")
 
     agent_runtime = _load_target(args[0])
     run_worker = getattr(agent_runtime, "run_worker", None)

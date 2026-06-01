@@ -1,7 +1,7 @@
 from agents import Agent, function_tool
 from ddgs import DDGS
 
-from sdk import register_agent, agent_runner, sleep, step
+from amber import register_agent, agent_runner, sleep, step
 
 
 @function_tool

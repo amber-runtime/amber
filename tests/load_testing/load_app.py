@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import Body, FastAPI, HTTPException
 from pydantic import BaseModel
 
-from sdk import AgentService, Runtime, list_registered_agents
+from amber import AgentService, Runtime, list_registered_agents
 from tests.load_testing.config import load_load_test_config
 from tests.load_testing import synthetic_queue_agent
 

@@ -1,5 +1,10 @@
 # Amber CLI
 
+> **Published to PyPI as `amber-runtime`.**
+> This folder contains the CLI code. The package is named `amber-runtime` because
+> `pip install amber-runtime` is the single install command users run to get both
+> the CLI (`amber` command) and the SDK (`from amber import ...`) via its dependency on `amber-sdk`.
+
 Deploy and manage durable AI agents.
 
 ## Install

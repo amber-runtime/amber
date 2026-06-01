@@ -11,7 +11,7 @@ SDK_SRC = ROOT / "sdk" / "src"
 if str(SDK_SRC) not in sys.path:
     sys.path.insert(0, str(SDK_SRC))
 
-from sdk.dashboard import DashboardClient  # noqa: E402
+from amber.dashboard import DashboardClient  # noqa: E402
 
 
 class DashboardClientTests(unittest.IsolatedAsyncioTestCase):

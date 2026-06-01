@@ -43,8 +43,8 @@ if __name__ == "__main__":
         print("ERROR: WORKER_TARGET env var is required (e.g. example_customer_app.main:agent_runtime)")
         raise SystemExit(1)
 
-    from sdk.queue_metrics import env_flag, start_queue_metrics_publisher
-    from sdk.worker import _load_target
+    from amber.queue_metrics import env_flag, start_queue_metrics_publisher
+    from amber.worker import _load_target
 
     agent_runtime = _load_target(target)
     run_worker = getattr(agent_runtime, "run_worker", None)

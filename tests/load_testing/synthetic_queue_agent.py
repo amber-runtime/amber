@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from sdk import logger, register_agent, sleep
+from amber import logger, register_agent, sleep
 
 SAMPLE_MESSAGE = "sleep=5"
 DEFAULT_SLEEP_SECONDS = 5

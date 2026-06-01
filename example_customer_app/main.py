@@ -5,7 +5,7 @@ Run API:
   uv run uvicorn example_customer_app.main:app --port 8003
 
 Run worker in another terminal:
-  uv run python -m sdk.worker example_customer_app.main:agent_runtime
+  uv run python -m amber.worker example_customer_app.main:agent_runtime
 """
 
 import logging
@@ -26,7 +26,7 @@ from .user_agents import (
     multi_agent_demo,
     single_agent_demo,  # noqa: F401
 )
-from sdk import (
+from amber import (
     AgentRuntime,
     get_workflow,
     list_registered_agents,
