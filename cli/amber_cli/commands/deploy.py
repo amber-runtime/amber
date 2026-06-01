@@ -1,47 +1,235 @@
-"""amber deploy — build and deploy agents to the cloud."""
+"""amber deploy - build and deploy agents to AWS."""
+
+from __future__ import annotations
 
 import base64
 import json
 import os
+import shutil
 import subprocess
 import time
+from pathlib import Path
 
 import boto3
 import click
+from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError, ProfileNotFound
 from rich.console import Console
 
-from amber_cli.config_loader import find_config_path, load_config
+from amber_cli.assets import asset_path
+from amber_cli.config_loader import find_config_path, load_config, validate_deploy_config
 
 console = Console()
 
+SERVICE_TO_ECR_OUTPUT = {
+    "dashboard-api": "ecr_dashboard_api_url",
+    "customer-app": "ecr_customer_app_url",
+    "customer-worker": "ecr_customer_worker_url",
+}
 
-def _run(cmd: list[str], cwd: str | None = None, check: bool = True) -> subprocess.CompletedProcess:
-    """Run a subprocess, capturing output."""
-    return subprocess.run(
-        cmd,
-        cwd=cwd,
-        check=check,
-        capture_output=True,
-        text=True,
-    )
+SERVICE_TO_DOCKERFILE = {
+    "dashboard-api": "Dockerfile.dashboard-api",
+    "customer-app": "Dockerfile.customer-app",
+    "customer-worker": "Dockerfile.customer-worker",
+}
+
+SERVICE_TO_CONTEXT = {
+    "dashboard-api": "dashboard-api",
+    "customer-app": "customer-app",
+    "customer-worker": "customer-worker",
+}
+
+BOOTSTRAP_STACK_URL = "https://console.aws.amazon.com/cloudformation/home#/stacks/create/template"
 
 
-def _terraform_output(tf_dir: str) -> dict:
-    """Read terraform output as JSON."""
+def _run(cmd: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, cwd=cwd, check=check, capture_output=True, text=True)
+
+
+def _terraform_output(tf_dir: Path) -> dict:
     result = _run(["terraform", "output", "-json"], cwd=tf_dir)
     raw = json.loads(result.stdout)
     return {k: v["value"] for k, v in raw.items()}
 
 
-def _get_account_id() -> str:
-    sts = boto3.client("sts")
-    return sts.get_caller_identity()["Account"]
+def _ecr_outputs_from_config(cfg, account_id: str, region: str) -> dict[str, str]:
+    base = f"{account_id}.dkr.ecr.{region}.amazonaws.com"
+    prefix = cfg.prefix
+    return {
+        "ecr_dashboard_api_url": f"{base}/{prefix}-dashboard-api",
+        "ecr_customer_app_url": f"{base}/{prefix}-customer-app",
+        "ecr_customer_worker_url": f"{base}/{prefix}-customer-worker",
+    }
 
 
-def _ecr_login(account_id: str, region: str) -> None:
-    """Authenticate Docker with ECR."""
-    ecr = boto3.client("ecr", region_name=region)
-    token = ecr.get_authorization_token()
+def _session(profile: str, region: str) -> boto3.Session:
+    kwargs = {"region_name": region}
+    if profile:
+        kwargs["profile_name"] = profile
+    return boto3.Session(**kwargs)
+
+
+def _credential_preflight(session: boto3.Session) -> str:
+    try:
+        return session.client("sts").get_caller_identity()["Account"]
+    except (NoCredentialsError, ProfileNotFound) as exc:
+        _print_bootstrap_message(str(exc))
+        raise SystemExit(1) from exc
+    except BotoCoreError as exc:
+        message = str(exc)
+        if "SSOTokenLoadError" in exc.__class__.__name__ or "token" in message.lower():
+            _print_bootstrap_message(message)
+            raise SystemExit(1) from exc
+        raise
+
+
+def _print_bootstrap_message(detail: str) -> None:
+    console.print("[yellow]Amber could not find usable AWS credentials.[/yellow]")
+    console.print(f"  {detail}")
+    console.print()
+    console.print("For pre-release testing, you can create a manual IAM-user helper stack.")
+    console.print("This is not AWS SSO and there is no `amber bootstrap` command yet.")
+    console.print(f"  Launch CloudFormation: {BOOTSTRAP_STACK_URL}")
+    console.print(f"  Template:              {asset_path('bootstrap', 'amber-bootstrap.yaml')}")
+    console.print("  Then run: aws configure --profile amber")
+    console.print("  Finally add `profile: amber` to amber.yaml.")
+
+
+def _handle_aws_error(exc: ClientError) -> None:
+    code = exc.response.get("Error", {}).get("Code", "")
+    if "AccessDenied" in code or "Unauthorized" in code:
+        console.print(
+            "[red]AWS denied a deploy action. Re-launch or update the manual Amber IAM helper stack "
+            "so the deploy identity has the required permissions.[/red]"
+        )
+        raise SystemExit(1) from exc
+    raise exc
+
+
+def _copy_file(src: Path, dst: Path) -> None:
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+
+
+def _copy_tree(src: Path, dst: Path, ignore: shutil.IgnorePattern | None = None) -> None:
+    if dst.exists():
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst, ignore=ignore)
+
+
+def _ensure_gitignore(repo_root: Path) -> None:
+    gitignore = repo_root / ".gitignore"
+    existing = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
+    if ".amber/" in existing.splitlines():
+        return
+    with gitignore.open("a", encoding="utf-8") as f:
+        if existing and not existing.endswith("\n"):
+            f.write("\n")
+        f.write(".amber/\n")
+
+
+def _sync_terraform(tf_dir: Path) -> None:
+    tf_dir.mkdir(parents=True, exist_ok=True)
+    for src in asset_path("terraform").glob("*.tf"):
+        _copy_file(src, tf_dir / src.name)
+
+
+def _write_tfvars(tf_dir: Path, cfg, image_tag: str) -> None:
+    project_name = cfg.project_prefix or cfg.name
+    content = "\n".join(
+        [
+            f'project_name = "{project_name}"',
+            f'environment = "{cfg.environment}"',
+            f'region = "{cfg.region}"',
+            f'image_tag = "{image_tag}"',
+            f'asgi_app = "{cfg.app}"',
+            f'worker_target = "{cfg.worker}"',
+            f'path_prefix = "{cfg.path_prefix}"',
+            "",
+        ]
+    )
+    (tf_dir / "terraform.tfvars").write_text(content, encoding="utf-8")
+
+
+def _find_sdk_wheel() -> Path:
+    wheels = sorted(asset_path("sdk").glob("*.whl"))
+    if len(wheels) != 1:
+        console.print(
+            f"[red]Expected exactly one bundled SDK wheel in CLI assets, found {len(wheels)}.[/red]"
+        )
+        console.print("Run `python cli/scripts/prepare_assets.py` before building/installing the CLI.")
+        raise SystemExit(1)
+    return wheels[0]
+
+
+def _copy_customer_repo(repo_root: Path, dst: Path) -> None:
+    ignore = shutil.ignore_patterns(
+        ".amber",
+        ".git",
+        ".venv",
+        "__pycache__",
+        "*.pyc",
+        "node_modules",
+        "dist",
+        ".pytest_cache",
+        ".terraform",
+        "*.tfstate",
+        "*.tfvars",
+    )
+    _copy_tree(repo_root, dst, ignore=ignore)
+
+
+def _assemble_customer_context(repo_root: Path, build_root: Path, service: str, wheel: Path) -> Path:
+    context = build_root / SERVICE_TO_CONTEXT[service]
+    if context.exists():
+        shutil.rmtree(context)
+    context.mkdir(parents=True)
+    _copy_customer_repo(repo_root, context / "app")
+    (context / "wheels").mkdir()
+    _copy_file(wheel, context / "wheels" / wheel.name)
+    docker_assets = asset_path("docker")
+    _copy_file(docker_assets / SERVICE_TO_DOCKERFILE[service], context / "Dockerfile")
+    _copy_file(docker_assets / ".dockerignore", context / ".dockerignore")
+    entrypoint = "strip_prefix.py" if service == "customer-app" else "run_worker.py"
+    _copy_file(docker_assets / entrypoint, context / entrypoint)
+    return context
+
+
+def _assemble_dashboard_context(build_root: Path, wheel: Path) -> Path:
+    context = build_root / "dashboard-api"
+    if context.exists():
+        shutil.rmtree(context)
+    context.mkdir(parents=True)
+    _copy_tree(asset_path("control_plane"), context / "control_plane")
+    (context / "wheels").mkdir()
+    _copy_file(wheel, context / "wheels" / wheel.name)
+    docker_assets = asset_path("docker")
+    _copy_file(docker_assets / "Dockerfile.dashboard-api", context / "Dockerfile")
+    _copy_file(docker_assets / ".dockerignore", context / ".dockerignore")
+    _copy_file(docker_assets / "strip_prefix.py", context / "strip_prefix.py")
+    return context
+
+
+def _assemble_build_contexts(repo_root: Path, amber_dir: Path, services: list[str]) -> dict[str, Path]:
+    build_root = amber_dir / "build"
+    build_root.mkdir(parents=True, exist_ok=True)
+    wheel = _find_sdk_wheel()
+    contexts: dict[str, Path] = {}
+    for service in services:
+        if service == "dashboard-api":
+            contexts[service] = _assemble_dashboard_context(build_root, wheel)
+        elif service in {"customer-app", "customer-worker"}:
+            contexts[service] = _assemble_customer_context(repo_root, build_root, service, wheel)
+        else:
+            console.print(f"[red]Unknown service {service!r}.[/red]")
+            raise SystemExit(1)
+    return contexts
+
+
+def _ecr_login(session: boto3.Session, account_id: str, region: str) -> None:
+    try:
+        token = session.client("ecr", region_name=region).get_authorization_token()
+    except ClientError as exc:
+        _handle_aws_error(exc)
     decoded = base64.b64decode(token["authorizationData"][0]["authorizationToken"])
     password = decoded.decode().split(":")[1]
     registry = f"{account_id}.dkr.ecr.{region}.amazonaws.com"
@@ -54,79 +242,45 @@ def _ecr_login(account_id: str, region: str) -> None:
     )
 
 
-def _docker_build(dockerfile: str, tag: str, context: str) -> subprocess.CompletedProcess:
-    """Build a Docker image."""
-    return subprocess.run(
+def _docker_build(context: Path, tag: str) -> None:
+    subprocess.run(
         [
-            "docker", "build",
-            "--platform", "linux/amd64",
-            "-f", dockerfile,
-            "-t", f"{tag}:latest",
-            context,
+            "docker",
+            "build",
+            "--platform",
+            "linux/amd64",
+            "-f",
+            str(context / "Dockerfile"),
+            "-t",
+            tag,
+            str(context),
         ],
         check=True,
     )
 
 
-def _docker_push(tag: str) -> subprocess.CompletedProcess:
-    """Push a Docker image."""
-    return subprocess.run(
-        ["docker", "push", f"{tag}:latest"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+def _docker_push(tag: str) -> None:
+    subprocess.run(["docker", "push", tag], check=True)
 
 
-def _build_and_push_images(
-    services: list[str],
-    account_id: str,
-    region: str,
-    prefix: str,
-    repo_root: str,
-) -> None:
-    """Build and push Docker images for the given services."""
-    ecr_base = f"{account_id}.dkr.ecr.{region}.amazonaws.com"
-
-    for svc in services:
-        ecr_repo = f"{ecr_base}/{prefix}-{svc}"
-        dockerfile = os.path.join(repo_root, "infra", "docker", f"Dockerfile.{svc}")
-
-        if not os.path.exists(dockerfile):
-            console.print(f"[red]Dockerfile not found: {dockerfile}[/red]")
-            raise SystemExit(1)
-
-        console.print(f"  [bold]Building {svc}...[/bold]")
-        _docker_build(dockerfile, ecr_repo, repo_root)
-
-        console.print(f"  [bold]Pushing {svc}...[/bold]")
-        _docker_push(ecr_repo)
-        console.print(f"  [green]  {svc}: {ecr_repo}:latest[/green]")
-
-
-def _build_frontend(repo_root: str) -> bool:
-    """Build the React dashboard. Returns True on success."""
-    dashboard_dir = os.path.join(repo_root, "dashboard", "frontend")
-
-    result = _run(["npm", "ci"], cwd=dashboard_dir)
+def _terraform_apply(tf_dir: Path, image_tag: str, targets: list[str] | None = None) -> None:
+    cmd = ["terraform", "apply", "-auto-approve", f"-var=image_tag={image_tag}"]
+    for target in targets or []:
+        cmd.extend(["-target", target])
+    result = _run(cmd, cwd=tf_dir, check=False)
     if result.returncode != 0:
-        console.print(f"[red]npm ci failed:[/red]\n{result.stderr}")
-        return False
-
-    result = _run(["npm", "run", "build"], cwd=dashboard_dir)
-    if result.returncode != 0:
-        console.print(f"[red]Dashboard build failed:[/red]\n{result.stderr}")
-        return False
-
-    return True
+        console.print(f"[red]Terraform apply failed:[/red]\n{result.stderr}")
+        raise SystemExit(1)
 
 
-def _deploy_frontend(bucket: str, dist_id: str, repo_root: str, region: str) -> None:
-    """Sync dashboard build to S3 and invalidate CloudFront."""
-    dist_dir = os.path.join(repo_root, "dashboard", "frontend", "dist")
-    s3 = boto3.client("s3", region_name=region)
+def _sync_frontend(session: boto3.Session, bucket: str, dist_id: str, region: str) -> None:
+    dist_dir = asset_path("frontend", "dist")
+    if not dist_dir.exists():
+        console.print("[red]Bundled frontend dist is missing. Run prepare_assets.py first.[/red]")
+        raise SystemExit(1)
 
-    CONTENT_TYPES = {
+    s3 = session.client("s3", region_name=region)
+    content_types = {
         ".html": "text/html; charset=utf-8",
         ".css": "text/css; charset=utf-8",
         ".js": "application/javascript; charset=utf-8",
@@ -138,162 +292,186 @@ def _deploy_frontend(bucket: str, dist_id: str, repo_root: str, region: str) -> 
         ".woff2": "font/woff2",
     }
 
+    seen: set[str] = set()
     for root, _, files in os.walk(dist_dir):
         for fname in files:
-            local_path = os.path.join(root, fname)
-            key = os.path.relpath(local_path, dist_dir)
-            ext = os.path.splitext(fname)[1].lower()
-            content_type = CONTENT_TYPES.get(ext)
-            extra_args = {"ContentType": content_type} if content_type else {}
-            s3.upload_file(local_path, bucket, key, ExtraArgs=extra_args)
+            local_path = Path(root) / fname
+            key = str(local_path.relative_to(dist_dir))
+            seen.add(key)
+            ext = local_path.suffix.lower()
+            extra_args = {"ContentType": content_types[ext]} if ext in content_types else {}
+            try:
+                s3.upload_file(str(local_path), bucket, key, ExtraArgs=extra_args)
+            except ClientError as exc:
+                _handle_aws_error(exc)
             console.print(f"  uploaded: {key}")
 
+    try:
+        paginator = s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=bucket):
+            stale = [
+                {"Key": obj["Key"]}
+                for obj in page.get("Contents", [])
+                if obj["Key"] not in seen
+            ]
+            if stale:
+                s3.delete_objects(Bucket=bucket, Delete={"Objects": stale})
+    except ClientError as exc:
+        _handle_aws_error(exc)
+
     if dist_id:
-        cf = boto3.client("cloudfront", region_name=region)
-        cf.create_invalidation(
-            DistributionId=dist_id,
-            InvalidationBatch={
-                "Paths": {"Quantity": 1, "Items": ["/*"]},
-                "CallerReference": f"amber-cli-{int(time.time())}",
-            },
-        )
+        try:
+            session.client("cloudfront", region_name=region).create_invalidation(
+                DistributionId=dist_id,
+                InvalidationBatch={
+                    "Paths": {"Quantity": 1, "Items": ["/*"]},
+                    "CallerReference": f"amber-cli-{int(time.time())}",
+                },
+            )
+        except ClientError as exc:
+            _handle_aws_error(exc)
         console.print("  [green]CloudFront cache invalidated[/green]")
 
 
-def _restart_ecs(cluster: str, services: list[str], region: str) -> None:
-    """Force new deployment on ECS services."""
-    ecs = boto3.client("ecs", region_name=region)
-    for svc in services:
-        ecs.update_service(
-            cluster=cluster,
-            service=svc,
-            forceNewDeployment=True,
-        )
-        console.print(f"  restarted: {svc}")
+def _restart_ecs(session: boto3.Session, cluster: str, services: list[str], region: str) -> None:
+    ecs = session.client("ecs", region_name=region)
+    for service in services:
+        try:
+            ecs.update_service(cluster=cluster, service=service, forceNewDeployment=True)
+        except ClientError as exc:
+            _handle_aws_error(exc)
+        console.print(f"  restarted: {service}")
 
 
-def _find_cloudfront_dist_id(domain: str, region: str) -> str:
-    """Look up CloudFront distribution ID from domain name."""
-    cf = boto3.client("cloudfront", region_name=region)
-    for d in cf.list_distributions().get("DistributionList", {}).get("Items", []):
-        if d.get("DomainName") == domain:
-            return d["Id"]
-    return ""
+def _image_tag(repo_root: Path) -> str:
+    result = _run(["git", "rev-parse", "--short", "HEAD"], cwd=repo_root, check=False)
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip()
+    return str(int(time.time()))
 
 
 @click.command()
-@click.option("--env", default="dev", help="Deployment environment")
+@click.option("--env", default="", help="Deployment environment override")
 @click.option("--no-build", is_flag=True, help="Skip Docker build (use existing images)")
 @click.option("--no-infra", is_flag=True, help="Skip terraform apply")
-@click.option("--no-frontend", is_flag=True, help="Skip frontend build and deploy")
+@click.option("--no-frontend", is_flag=True, help="Skip frontend deploy")
 @click.option("--service", multiple=True, help="Specific service(s) to build (default: all)")
-def deploy(env: str, no_build: bool, no_infra: bool, no_frontend: bool, service: tuple) -> None:
-    """Build and deploy your agents to the cloud."""
+def deploy(env: str, no_build: bool, no_infra: bool, no_frontend: bool, service: tuple[str, ...]) -> None:
+    """Build and deploy your agents to AWS."""
     cfg = load_config()
-    if not cfg.name:
+    errors = validate_deploy_config(cfg)
+    if errors:
+        console.print("[red]Invalid amber.yaml:[/red]")
+        for error in errors:
+            console.print(f"  - {error}")
+        raise SystemExit(1)
+    if env:
+        cfg.environment = env
+
+    config_path = find_config_path()
+    if not config_path:
         click.echo("No amber.yaml found. Run 'amber init' first.")
         raise SystemExit(1)
-
-    # Find repo root via git
-    result = _run(["git", "rev-parse", "--show-toplevel"], check=False)
-    if result.returncode != 0:
-        click.echo("Not in a git repository.")
-        raise SystemExit(1)
-    repo_root = result.stdout.strip()
-
-    tf_dir = os.path.join(repo_root, "infra", "terraform")
-    prefix = cfg.prefix
+    repo_root = Path(config_path).resolve().parent
+    amber_dir = repo_root / ".amber"
+    tf_dir = amber_dir / "terraform"
     region = cfg.region
-    account_id = _get_account_id()
+    image_tag = _image_tag(repo_root)
 
-    console.print(f"[bold]Amber deploy[/bold] — {cfg.name} ({env})")
+    _ensure_gitignore(repo_root)
+    _sync_terraform(tf_dir)
+    _write_tfvars(tf_dir, cfg, image_tag)
+
+    session = _session(cfg.profile, region)
+    account_id = _credential_preflight(session)
+
+    console.print(f"[bold]Amber deploy[/bold] - {cfg.name} ({cfg.environment})")
     console.print(f"  AWS account: {account_id}")
     console.print(f"  Region: {region}")
-    console.print(f"  Prefix: {prefix}")
+    console.print(f"  Repo: {repo_root}")
+    console.print(f"  Image tag: {image_tag}")
     console.print()
 
-    # ── Step 1: Terraform ─────────────────────────────────────────────────────
+    services_to_build = list(service) if service else ["dashboard-api", "customer-app", "customer-worker"]
+    unknown = sorted(set(services_to_build) - set(SERVICE_TO_ECR_OUTPUT))
+    if unknown:
+        console.print(f"[red]Unknown service(s): {', '.join(unknown)}[/red]")
+        raise SystemExit(1)
+
     if not no_infra:
-        console.print("[bold cyan]Step 1/4: Terraform[/bold cyan]")
-        _run(["terraform", "init", "-upgrade"], cwd=tf_dir)
-        result = _run(
-            ["terraform", "apply", "-auto-approve"],
-            cwd=tf_dir,
-            check=False,
+        console.print("[bold cyan]Step 1/5: Preparing Terraform and ECR[/bold cyan]")
+        _run(["terraform", "init"], cwd=tf_dir)
+        _terraform_apply(
+            tf_dir,
+            image_tag,
+            targets=[
+                "aws_ecr_repository.dashboard_api",
+                "aws_ecr_repository.customer_app",
+                "aws_ecr_repository.customer_worker",
+            ],
         )
-        if result.returncode != 0:
-            console.print(f"[red]Terraform apply failed:[/red]\n{result.stderr}")
-            raise SystemExit(1)
-        console.print("[green]  Infrastructure up to date[/green]")
+        console.print("[green]  ECR repositories ready[/green]")
         console.print()
     else:
-        console.print("[dim]  Skipping terraform (--no-infra)[/dim]")
+        console.print("[dim]  Skipping ECR bootstrap (--no-infra)[/dim]")
 
-    # Read terraform outputs
-    tf_out = _terraform_output(tf_dir)
-    cloudfront_domain = tf_out.get("cloudfront_domain", "")
-    bucket = tf_out.get("frontend_bucket_name", f"{prefix}-frontend")
+    if no_infra:
+        tf_out = _terraform_output(tf_dir)
+    else:
+        tf_out = _ecr_outputs_from_config(cfg, account_id, region)
 
-    # Update .env.production with the current CloudFront domain
-    if cloudfront_domain and not no_frontend:
-        env_file = os.path.join(
-            repo_root,
-            "dashboard",
-            "frontend",
-            ".env.production",
-        )
-        if os.path.exists(env_file):
-            with open(env_file) as f:
-                content = f.read()
-            # Replace any cloudfront.net domain with the current one
-            import re
-            updated = re.sub(
-                r"https://[a-z0-9]+\.cloudfront\.net",
-                f"https://{cloudfront_domain}",
-                content,
-            )
-            if updated != content:
-                with open(env_file, "w") as f:
-                    f.write(updated)
-                console.print(f"  Updated .env.production → {cloudfront_domain}")
-    # ── Step 2: Docker build + push ────────────────────────────────────────────
     if not no_build:
-        console.print("[bold cyan]Step 2/4: Building Docker images[/bold cyan]")
-        services_to_build = list(service) if service else ["dashboard-api", "customer-app", "customer-worker"]
-        _ecr_login(account_id, region)
-        _build_and_push_images(services_to_build, account_id, region, prefix, repo_root)
+        console.print("[bold cyan]Step 2/5: Building Docker images[/bold cyan]")
+        contexts = _assemble_build_contexts(repo_root, amber_dir, services_to_build)
+        _ecr_login(session, account_id, region)
+        for service_name, context in contexts.items():
+            image = f"{tf_out[SERVICE_TO_ECR_OUTPUT[service_name]]}:{image_tag}"
+            console.print(f"  [bold]Building {service_name}...[/bold]")
+            _docker_build(context, image)
+            console.print(f"  [bold]Pushing {service_name}...[/bold]")
+            _docker_push(image)
+            console.print(f"  [green]{service_name}: {image}[/green]")
         console.print()
     else:
         console.print("[dim]  Skipping Docker build (--no-build)[/dim]")
 
-    # ── Step 3: Restart ECS ────────────────────────────────────────────────────
-    console.print("[bold cyan]Step 3/4: Restarting ECS services[/bold cyan]")
-    cluster = prefix
-    ecs_services = [
-        f"{prefix}-dashboard-api",
-        f"{prefix}-customer-app",
-        f"{prefix}-customer-worker",
-    ]
-    _restart_ecs(cluster, ecs_services, region)
-    console.print()
+    if not no_infra:
+        console.print("[bold cyan]Step 3/5: Applying full infrastructure[/bold cyan]")
+        _terraform_apply(tf_dir, image_tag)
+        tf_out = _terraform_output(tf_dir)
+        console.print("[green]  Infrastructure deployed[/green]")
+        console.print()
+    else:
+        console.print("[bold cyan]Step 3/5: Restarting ECS services[/bold cyan]")
+        _restart_ecs(
+            session,
+            tf_out["ecs_cluster_name"],
+            [
+                tf_out["dashboard_api_service_name"],
+                tf_out["customer_app_service_name"],
+                tf_out["customer_worker_service_name"],
+            ],
+            region,
+        )
+        console.print()
 
-    # ── Step 4: Deploy frontend ────────────────────────────────────────────────
     if not no_frontend:
-        console.print("[bold cyan]Step 4/4: Deploying frontend[/bold cyan]")
-        dist_id = _find_cloudfront_dist_id(cloudfront_domain, region)
-        if _build_frontend(repo_root):
-            _deploy_frontend(bucket, dist_id, repo_root, region)
-            console.print("[green]  Frontend deployed[/green]")
-        else:
-            console.print("[yellow]  Frontend build failed — backend services still updated[/yellow]")
+        console.print("[bold cyan]Step 4/5: Deploying frontend[/bold cyan]")
+        _sync_frontend(
+            session,
+            tf_out["frontend_bucket_name"],
+            tf_out.get("cloudfront_distribution_id", ""),
+            region,
+        )
+        console.print("[green]  Frontend deployed[/green]")
         console.print()
     else:
         console.print("[dim]  Skipping frontend (--no-frontend)[/dim]")
 
-    # ── Summary ────────────────────────────────────────────────────────────────
+    console.print("[bold cyan]Step 5/5: Summary[/bold cyan]")
+    cloudfront_domain = tf_out.get("cloudfront_domain", "")
     console.print("[bold green]Deploy complete![/bold green]")
     if cloudfront_domain:
         console.print(f"  URL:       https://{cloudfront_domain}")
         console.print(f"  Dashboard: https://{cloudfront_domain}/")
-        console.print(f"  Demo:      https://{cloudfront_domain}/demo/")
-        console.print(f"  API:       https://{cloudfront_domain}/api/")
+        console.print(f"  API:       https://{cloudfront_domain}{cfg.path_prefix}/")

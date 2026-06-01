@@ -27,14 +27,17 @@ def init(name: str, directory: str) -> None:
 
 name: {name}
 
-# Agents are auto-detected from @agent decorators in your code.
-# Override here if needed:
-# agents:
-#   - my-agent
+# Explicit application entrypoints.
+# app is the ASGI app served by ECS; worker is the AgentRuntime consumed by the
+# queue worker process.
+app: my_app.main:app
+worker: my_app.main:agent_runtime
+path_prefix: /api
 
 # Optional: infrastructure settings (sensible defaults applied)
 # region: us-east-1
 # environment: dev
+# profile: amber
 # dashboard: true
 """
 
@@ -42,8 +45,21 @@ name: {name}
     with open(config_path, "w") as f:
         f.write(config_content)
 
+    gitignore_path = os.path.join(target, ".gitignore")
+    existing = ""
+    if os.path.exists(gitignore_path):
+        with open(gitignore_path) as f:
+            existing = f.read()
+    if ".amber/" not in existing.splitlines():
+        with open(gitignore_path, "a") as f:
+            if existing and not existing.endswith("\n"):
+                f.write("\n")
+            f.write(".amber/\n")
+
     click.echo(f"Created {config_path}")
     click.echo()
     click.echo("Next steps:")
-    click.echo(f"  1. Set your API key:  amber config set openai-api-key")
-    click.echo(f"  2. Deploy:            amber deploy")
+    click.echo("  1. Edit app/worker in amber.yaml")
+    click.echo("  2. Bootstrap AWS credentials if needed")
+    click.echo("  3. Set your API key:  amber config set openai-api-key")
+    click.echo("  4. Deploy:            amber deploy")
