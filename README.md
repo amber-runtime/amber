@@ -56,7 +56,7 @@ amber deploy
 
 | Directory | Purpose |
 |---|---|
-| `dashboard/` | React SPA + FastAPI backend for observing workflow runs |
+| `dashboard/` | Split dashboard app with `frontend/` React SPA and `backend/` FastAPI service for observing workflow runs |
 | `infra/` | Terraform, Docker, deploy scripts. Direction: scripts migrate into CLI; `infra/` becomes Terraform-only |
 | `example_customer_app/` | Reference FastAPI app showing how to wire up Amber. Used for integration testing and CLI development. Will move to its own repo as the public quickstart |
 | `tests/` | Integration and reliability tests |

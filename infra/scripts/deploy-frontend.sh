@@ -24,7 +24,7 @@ BUCKET="$(terraform -chdir="$TF_DIR" output -raw frontend_bucket_name)"
 DIST_ID="$(terraform -chdir="$TF_DIR" output -raw cloudfront_distribution_id)"
 
 echo "==> Installing dashboard dependencies..."
-cd dashboard
+cd dashboard/frontend
 npm ci
 
 echo "==> Building dashboard..."

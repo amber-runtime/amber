@@ -30,7 +30,6 @@ RUN uv sync --frozen --no-dev
 
 # Layer 2: application code
 COPY sdk/                  sdk/
-COPY dashboard/__init__.py dashboard/dashboard_backend.py dashboard/
 COPY example_customer_app/ example_customer_app/
 
 # Prefix-stripping middleware for path-based ALB routing

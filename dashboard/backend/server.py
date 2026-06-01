@@ -8,7 +8,7 @@ traces from the same database used by embedded customer applications or the
 optional runtime server.
 
 ## Run
-  uv run uvicorn dashboard.dashboard_backend:app --port 8001
+  uv run uvicorn dashboard.backend.server:app --port 8001
 
 ## Endpoints
   GET /health

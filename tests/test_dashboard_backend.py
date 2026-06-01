@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 os.environ.setdefault("DB_URL", "postgresql://db")
 
-dashboard_backend = importlib.import_module("dashboard.dashboard_backend")
+dashboard_backend = importlib.import_module("dashboard.backend.server")
 
 
 class DashboardBackendTests(unittest.TestCase):
