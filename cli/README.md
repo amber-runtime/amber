@@ -22,6 +22,7 @@ $EDITOR amber.yaml
 amber auth setup
 amber deploy
 amber status
+amber destroy
 ```
 
 `amber.yaml` is the user-facing deployment config. End users should not edit
@@ -94,6 +95,7 @@ amber deploy --service customer-app
 | `amber auth login` | Refresh the saved AWS SSO session |
 | `amber auth check` | Verify the configured AWS profile |
 | `amber deploy` | Build and deploy to AWS |
+| `amber destroy` | Tear down deployed AWS resources |
 | `amber config list` | Show project info and secret status |
 | `amber config set <key>` | Set a secret in AWS |
 | `amber status` | Show ECS health and deployed URLs |
@@ -138,12 +140,14 @@ amber config set openai-api-key
 amber config list
 ```
 
-## Teardown Today
+## Teardown
 
-There is no `amber destroy` command in this cleanup pass. Destroy the generated
-Terraform workspace directly:
+Destroy the AWS resources created by `amber deploy`:
 
 ```bash
-cd .amber/terraform
-terraform destroy
+amber destroy
 ```
+
+Use `amber destroy --yes` for non-interactive cleanup. The command keeps local
+project config in `amber.yaml`; to fully reset local Amber config after
+destroying cloud resources, run `rm amber.yaml && rm -rf .amber`.

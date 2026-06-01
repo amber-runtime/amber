@@ -14,7 +14,7 @@ RUN python -m pip install --upgrade pip \
 
 COPY app/ /workspace/app/
 WORKDIR /workspace/app
-RUN python -m pip install --no-cache-dir --find-links=/wheels .
+ENV PYTHONPATH=/workspace/app
 
 COPY strip_prefix.py /workspace/strip_prefix.py
 

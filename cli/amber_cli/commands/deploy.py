@@ -42,6 +42,15 @@ def _run(cmd: list[str], cwd: Path | None = None, check: bool = True) -> subproc
     return subprocess.run(cmd, cwd=cwd, check=check, capture_output=True, text=True)
 
 
+def _run_with_status(
+    cmd: list[str],
+    cwd: Path | None,
+    message: str,
+) -> subprocess.CompletedProcess:
+    with console.status(message):
+        return _run(cmd, cwd=cwd, check=False)
+
+
 def _terraform_output(tf_dir: Path) -> dict:
     result = _run(["terraform", "output", "-json"], cwd=tf_dir)
     raw = json.loads(result.stdout)
@@ -230,13 +239,27 @@ def _docker_push(tag: str) -> None:
     subprocess.run(["docker", "push", tag], check=True)
 
 
-def _terraform_apply(tf_dir: Path, image_tag: str, targets: list[str] | None = None) -> None:
+def _terraform_init(tf_dir: Path) -> None:
+    result = _run_with_status(["terraform", "init"], tf_dir, "  Initializing Terraform...")
+    if result.returncode != 0:
+        detail = result.stderr or result.stdout
+        console.print(f"[red]Terraform init failed:[/red]\n{detail}")
+        raise SystemExit(1)
+
+
+def _terraform_apply(
+    tf_dir: Path,
+    image_tag: str,
+    targets: list[str] | None = None,
+    status_message: str = "  Applying Terraform...",
+) -> None:
     cmd = ["terraform", "apply", "-auto-approve", f"-var=image_tag={image_tag}"]
     for target in targets or []:
         cmd.extend(["-target", target])
-    result = _run(cmd, cwd=tf_dir, check=False)
+    result = _run_with_status(cmd, tf_dir, status_message)
     if result.returncode != 0:
-        console.print(f"[red]Terraform apply failed:[/red]\n{result.stderr}")
+        detail = result.stderr or result.stdout
+        console.print(f"[red]Terraform apply failed:[/red]\n{detail}")
         raise SystemExit(1)
 
 
@@ -260,41 +283,44 @@ def _sync_frontend(session, bucket: str, dist_id: str, region: str) -> None:
     }
 
     seen: set[str] = set()
-    for root, _, files in os.walk(dist_dir):
-        for fname in files:
-            local_path = Path(root) / fname
-            key = str(local_path.relative_to(dist_dir))
-            seen.add(key)
-            ext = local_path.suffix.lower()
-            extra_args = {"ContentType": content_types[ext]} if ext in content_types else {}
-            try:
-                s3.upload_file(str(local_path), bucket, key, ExtraArgs=extra_args)
-            except ClientError as exc:
-                _handle_aws_error(exc)
-            console.print(f"  uploaded: {key}")
+    with console.status("  Syncing frontend assets..."):
+        for root, _, files in os.walk(dist_dir):
+            for fname in files:
+                local_path = Path(root) / fname
+                key = str(local_path.relative_to(dist_dir))
+                seen.add(key)
+                ext = local_path.suffix.lower()
+                extra_args = {"ContentType": content_types[ext]} if ext in content_types else {}
+                try:
+                    s3.upload_file(str(local_path), bucket, key, ExtraArgs=extra_args)
+                except ClientError as exc:
+                    _handle_aws_error(exc)
+                console.print(f"  uploaded: {key}")
 
     try:
-        paginator = s3.get_paginator("list_objects_v2")
-        for page in paginator.paginate(Bucket=bucket):
-            stale = [
-                {"Key": obj["Key"]}
-                for obj in page.get("Contents", [])
-                if obj["Key"] not in seen
-            ]
-            if stale:
-                s3.delete_objects(Bucket=bucket, Delete={"Objects": stale})
+        with console.status("  Removing stale frontend assets..."):
+            paginator = s3.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=bucket):
+                stale = [
+                    {"Key": obj["Key"]}
+                    for obj in page.get("Contents", [])
+                    if obj["Key"] not in seen
+                ]
+                if stale:
+                    s3.delete_objects(Bucket=bucket, Delete={"Objects": stale})
     except ClientError as exc:
         _handle_aws_error(exc)
 
     if dist_id:
         try:
-            session.client("cloudfront", region_name=region).create_invalidation(
-                DistributionId=dist_id,
-                InvalidationBatch={
-                    "Paths": {"Quantity": 1, "Items": ["/*"]},
-                    "CallerReference": f"amber-cli-{int(time.time())}",
-                },
-            )
+            with console.status("  Invalidating CloudFront cache..."):
+                session.client("cloudfront", region_name=region).create_invalidation(
+                    DistributionId=dist_id,
+                    InvalidationBatch={
+                        "Paths": {"Quantity": 1, "Items": ["/*"]},
+                        "CallerReference": f"amber-cli-{int(time.time())}",
+                    },
+                )
         except ClientError as exc:
             _handle_aws_error(exc)
         console.print("  [green]CloudFront cache invalidated[/green]")
@@ -375,7 +401,7 @@ def deploy(env: str, no_build: bool, no_infra: bool, no_frontend: bool, service:
 
     if not no_infra:
         console.print("[bold cyan]Step 1/5: Preparing Terraform and ECR[/bold cyan]")
-        _run(["terraform", "init"], cwd=tf_dir)
+        _terraform_init(tf_dir)
         _terraform_apply(
             tf_dir,
             image_tag,
@@ -384,6 +410,7 @@ def deploy(env: str, no_build: bool, no_infra: bool, no_frontend: bool, service:
                 "aws_ecr_repository.customer_app",
                 "aws_ecr_repository.customer_worker",
             ],
+            status_message="  Preparing ECR repositories...",
         )
         console.print("[green]  ECR repositories ready[/green]")
         console.print()
@@ -412,7 +439,7 @@ def deploy(env: str, no_build: bool, no_infra: bool, no_frontend: bool, service:
 
     if not no_infra:
         console.print("[bold cyan]Step 3/5: Applying full infrastructure[/bold cyan]")
-        _terraform_apply(tf_dir, image_tag)
+        _terraform_apply(tf_dir, image_tag, status_message="  Applying AWS infrastructure...")
         tf_out = _terraform_output(tf_dir)
         console.print("[green]  Infrastructure deployed[/green]")
         console.print()
