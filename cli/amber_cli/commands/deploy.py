@@ -106,7 +106,7 @@ def _build_and_push_images(
 
 def _build_frontend(repo_root: str) -> bool:
     """Build the React dashboard. Returns True on success."""
-    dashboard_dir = os.path.join(repo_root, "admin_dashboard")
+    dashboard_dir = os.path.join(repo_root, "dashboard")
 
     result = _run(["npm", "ci"], cwd=dashboard_dir)
     if result.returncode != 0:
@@ -123,7 +123,7 @@ def _build_frontend(repo_root: str) -> bool:
 
 def _deploy_frontend(bucket: str, dist_id: str, repo_root: str, region: str) -> None:
     """Sync dashboard build to S3 and invalidate CloudFront."""
-    dist_dir = os.path.join(repo_root, "admin_dashboard", "dist")
+    dist_dir = os.path.join(repo_root, "dashboard", "dist")
     s3 = boto3.client("s3", region_name=region)
 
     CONTENT_TYPES = {
@@ -236,7 +236,7 @@ def deploy(env: str, no_build: bool, no_infra: bool, no_frontend: bool, service:
 
     # Update .env.production with the current CloudFront domain
     if cloudfront_domain and not no_frontend:
-        env_file = os.path.join(repo_root, "admin_dashboard", ".env.production")
+        env_file = os.path.join(repo_root, "dashboard", ".env.production")
         if os.path.exists(env_file):
             with open(env_file) as f:
                 content = f.read()

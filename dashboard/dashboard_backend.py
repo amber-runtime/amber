@@ -8,7 +8,7 @@ traces from the same database used by embedded customer applications or the
 optional runtime server.
 
 ## Run
-  uv run uvicorn admin_dashboard.dashboard_backend:app --port 8001
+  uv run uvicorn dashboard.dashboard_backend:app --port 8001
 
 ## Endpoints
   GET /health
@@ -35,7 +35,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from pydantic import BaseModel
 
-from sdk.dashboard import DashboardClient, WorkflowDetail, WorkflowSummary
+from amber.dashboard import DashboardClient, WorkflowDetail, WorkflowSummary
 
 load_dotenv()
 
