@@ -191,7 +191,7 @@ def stage_outreach_payloads(
 
 
 @function_tool
-@step(name="record_research_decision")
+@step(name="record_research_decision_error_demo")
 def record_research_decision(next_action: str, rationale: str) -> str:
     return _json({"next_action": next_action, "rationale": rationale})
 
