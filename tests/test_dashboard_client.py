@@ -187,6 +187,16 @@ class DashboardClientTests(unittest.IsolatedAsyncioTestCase):
             "wf-1", queue_name="q1"
         )
 
+    async def test_delete_workflows_calls_dbos_client_and_returns_payload(self):
+        client = DashboardClient.__new__(DashboardClient)
+        client._client = mock.Mock()
+        client._client.delete_workflows_async = mock.AsyncMock()
+
+        result = await client.delete_workflows(["wf-1", "wf-2"])
+
+        self.assertEqual(result, {"deleted": 2, "action": "delete", "accepted": True})
+        client._client.delete_workflows_async.assert_awaited_once_with(["wf-1", "wf-2"])
+
     async def test_cancel_workflow_returns_action_payload(self):
         client = DashboardClient.__new__(DashboardClient)
         client._db_url = "postgresql://db"

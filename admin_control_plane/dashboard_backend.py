@@ -144,6 +144,10 @@ class ForkWorkflowRequest(BaseModel):
     start_step: int
 
 
+class DeleteWorkflowsRequest(BaseModel):
+    workflow_ids: list[str]
+
+
 @app.get("/workflows", response_model=WorkflowListPage)
 async def get_workflows(
     status: Optional[str] = Query(
@@ -199,6 +203,13 @@ async def get_queued_workflows(
         for r in rows
     ]
     return QueuedWorkflowListPage(workflows=workflows, has_more=has_more)
+
+
+@app.post("/workflows/delete")
+async def delete_workflows(request: DeleteWorkflowsRequest):
+    if not request.workflow_ids:
+        raise HTTPException(status_code=422, detail="workflow_ids must not be empty")
+    return await get_dashboard_client().delete_workflows(request.workflow_ids)
 
 
 @app.get("/workflows/{workflow_id}", response_model=WorkflowDetail)

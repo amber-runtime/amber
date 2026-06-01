@@ -23,9 +23,6 @@ export function PageHeader({ actions }: PageHeaderProps) {
             <NavLink to="/" end className={navClass}>
               Workflows
             </NavLink>
-            <NavLink to="/queued" className={navClass}>
-              Queued
-            </NavLink>
           </nav>
         </div>
         {actions && <div className="flex items-center gap-2">{actions}</div>}

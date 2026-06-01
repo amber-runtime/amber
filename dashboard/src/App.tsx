@@ -5,7 +5,6 @@ import { fetchPricing } from './lib/api'
 import { setPricing } from './lib/pricingStore'
 import { WorkflowListPage } from './pages/list/WorkflowListPage'
 import { WorkflowDetailPage } from './pages/details/WorkflowDetailPage'
-import { QueuedPage } from './pages/queued/QueuedPage'
 import { ToastStack } from './shared/Toast'
 
 export default function App() {
@@ -21,7 +20,6 @@ export default function App() {
         <Routes>
           <Route path="/" element={<WorkflowListPage />} />
           <Route path="/workflows/:id" element={<WorkflowDetailPage />} />
-          <Route path="/queued" element={<QueuedPage />} />
         </Routes>
       </BrowserRouter>
       <ToastStack />
