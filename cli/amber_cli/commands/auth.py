@@ -131,12 +131,6 @@ def _setup_cloudformation(default_region: str, profile_option: str, region_optio
     _save_verified_profile(profile, region)
 
 
-def _setup_existing(default_region: str, profile_option: str, region_option: str) -> None:
-    profile = profile_option or _prompt_profile("default")
-    region = region_option or _prompt_region(default_region)
-    _save_verified_profile(profile, region)
-
-
 @click.group()
 def auth() -> None:
     """Configure and check AWS access."""
@@ -155,17 +149,14 @@ def setup(profile: str, region: str) -> None:
 
     default_region = region or cfg.region or "us-east-1"
     console.print("[bold]How do you access AWS?[/bold]")
-    console.print("  1. My company uses AWS SSO / IAM Identity Center")
-    console.print("  2. I can sign into the AWS Console as an admin")
-    console.print("  3. I already have AWS credentials or a configured profile")
-    choice = click.prompt("Choose an option", type=click.Choice(["1", "2", "3"]), default="1")
+    console.print("  1. Use AWS SSO / IAM Identity Center")
+    console.print("  2. Create an Amber deploy profile with the CloudFormation helper")
+    choice = click.prompt("Choose an option", type=click.Choice(["1", "2"]), default="1")
 
     if choice == "1":
         _setup_sso(default_region, profile, region)
-    elif choice == "2":
-        _setup_cloudformation(default_region, profile, region)
     else:
-        _setup_existing(default_region, profile, region)
+        _setup_cloudformation(default_region, profile, region)
 
 
 @auth.command("login")
@@ -177,7 +168,7 @@ def login() -> None:
         raise SystemExit(1)
     if not cfg.profile:
         console.print("[red]No AWS profile is configured in amber.yaml.[/red]")
-        console.print("Run: amber auth setup")
+        console.print("Run `amber auth setup` and choose AWS SSO first.")
         raise SystemExit(1)
 
     _run_aws(["sso", "login", "--profile", cfg.profile], interactive=True)

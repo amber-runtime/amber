@@ -18,7 +18,7 @@ RUN python -m pip install --no-cache-dir --find-links=/wheels .
 
 COPY strip_prefix.py /workspace/strip_prefix.py
 
-ENV ASGI_APP=admin_control_plane.dashboard_backend:app
+ENV ASGI_APP=dashboard.backend.server:app
 ENV PATH_PREFIX=/dashboard
 ENV PORT=8001
 EXPOSE 8001
