@@ -1,0 +1,12 @@
+.amber/
+.git/
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+dist/
+.pytest_cache/
+.terraform/
+*.tfstate
+*.tfvars
+.DS_Store

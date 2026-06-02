@@ -1294,11 +1294,11 @@ class DemoRegistrationTests(unittest.TestCase):
             with (
                 mock.patch.object(demo, "CRASH_MARKER_DIR", Path(tmpdir) / "markers"),
                 mock.patch.object(demo, "CRASH_REQUEST_DIR", Path(tmpdir) / "requests"),
-                mock.patch.object(demo.os, "kill") as kill,
+                mock.patch.object(demo.os, "_exit") as hard_exit,
             ):
                 quotes = demo.get_hotel_quotes("Tokyo", "2026-07-10", "2026-07-13")
 
-        kill.assert_not_called()
+        hard_exit.assert_not_called()
         self.assertIn("Market House Hotel", quotes)
 
     def test_travel_crash_is_only_armed_by_explicit_toggle(self):
@@ -1540,14 +1540,14 @@ class DemoRegistrationTests(unittest.TestCase):
             with (
                 mock.patch.object(demo, "CRASH_MARKER_DIR", marker_dir),
                 mock.patch.object(demo, "CRASH_REQUEST_DIR", request_dir),
-                mock.patch.object(demo.os, "kill") as kill,
+                mock.patch.object(demo.os, "_exit") as hard_exit,
             ):
                 demo._request_hotel_crash(self.DBOS.workflow_id)
                 demo._crash_once_during_hotel(self.DBOS.workflow_id)
                 demo._request_hotel_crash(self.DBOS.workflow_id)
                 demo._crash_once_during_hotel(self.DBOS.workflow_id)
 
-                kill.assert_called_once()
+                hard_exit.assert_called_once_with(42)
                 self.assertTrue((marker_dir / self.DBOS.workflow_id).exists())
 
 

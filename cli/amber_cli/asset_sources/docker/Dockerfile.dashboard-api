@@ -1,0 +1,29 @@
+FROM python:3.11-slim
+
+WORKDIR /workspace
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY wheels/ /wheels/
+RUN python -m pip install --upgrade pip \
+    && python -m pip install --no-cache-dir --find-links=/wheels /wheels/*.whl
+
+COPY control_plane/ /workspace/control_plane/
+WORKDIR /workspace/control_plane
+RUN python -m pip install --no-cache-dir --find-links=/wheels .
+
+COPY strip_prefix.py /workspace/strip_prefix.py
+
+ENV ASGI_APP=admin_control_plane.dashboard_backend:app
+ENV PATH_PREFIX=/dashboard
+ENV PORT=8001
+EXPOSE 8001
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -sf http://localhost:8001/health || exit 1
+
+CMD ["python", "/workspace/strip_prefix.py"]

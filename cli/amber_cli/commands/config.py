@@ -1,17 +1,32 @@
 """amber config — manage secrets and configuration."""
 
-import boto3
 import click
+from rich.console import Console
 
+from amber_cli.aws_auth import AWSAuthError, create_session, print_auth_error, verify_identity
 from amber_cli.config_loader import load_config, resolve_secret_path, SECRET_REGISTRY
 
-
-def _get_ssm_client(region: str):
-    return boto3.client("ssm", region_name=region)
+console = Console()
 
 
-def _get_sm_client(region: str):
-    return boto3.client("secretsmanager", region_name=region)
+def _session(cfg):
+    return create_session(cfg.profile, cfg.region)
+
+
+def _require_auth(cfg, retry_command: str) -> None:
+    try:
+        verify_identity(cfg.profile, cfg.region)
+    except AWSAuthError as exc:
+        print_auth_error(console, exc, retry_command)
+        raise SystemExit(1) from exc
+
+
+def _get_ssm_client(cfg):
+    return _session(cfg).client("ssm", region_name=cfg.region)
+
+
+def _get_sm_client(cfg):
+    return _session(cfg).client("secretsmanager", region_name=cfg.region)
 
 
 @click.group()
@@ -34,8 +49,9 @@ def config_list() -> None:
     click.echo(f"Env:     {cfg.environment}")
     click.echo()
 
-    ssm = _get_ssm_client(cfg.region)
-    sm = _get_sm_client(cfg.region)
+    _require_auth(cfg, "amber config list")
+    ssm = _get_ssm_client(cfg)
+    sm = _get_sm_client(cfg)
 
     click.echo("Secrets:")
     for key, meta in SECRET_REGISTRY.items():
@@ -88,13 +104,14 @@ def config_set(key: str) -> None:
         click.echo(f"{key} is read-only (managed by AWS).")
         raise SystemExit(1)
 
+    _require_auth(cfg, f"amber config set {key}")
     value = click.prompt(f"Enter value for {key}", hide_input=True)
     if not value:
         click.echo("Empty value, aborting.")
         raise SystemExit(1)
 
     if entry["type"] == "ssm":
-        ssm = _get_ssm_client(cfg.region)
+        ssm = _get_ssm_client(cfg)
         ssm.put_parameter(
             Name=entry["path"],
             Value=value,
@@ -103,7 +120,7 @@ def config_set(key: str) -> None:
         )
         click.echo(f"Set {key} in SSM: {entry['path']}")
     elif entry["type"] == "secretsmanager":
-        sm = _get_sm_client(cfg.region)
+        sm = _get_sm_client(cfg)
         try:
             sm.put_secret_value(
                 SecretId=entry["path"],

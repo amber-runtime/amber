@@ -1,22 +1,29 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "amber-runtime"
 version = "0.1.0"
-description = "Amber Runtime — durable AI agent execution"
+description = "Amber Runtime - durable AI agent execution"
 requires-python = ">=3.11"
 dependencies = [
     "amber-sdk>=0.1.0",
     "click>=8.1",
     "rich>=13.0",
     "boto3>=1.34",
+    "botocore>=1.34",
     "pyyaml>=6.0",
 ]
 
 [project.scripts]
 amber = "amber_cli.main:cli"
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["amber_cli*"]
 
-[tool.hatch.build.targets.wheel]
-packages = ["amber_cli"]
+[tool.setuptools.package-data]
+amber_cli = [
+    "assets/**/*",
+]

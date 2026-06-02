@@ -1,0 +1,28 @@
+FROM python:3.11-slim
+
+WORKDIR /workspace
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY wheels/ /wheels/
+RUN python -m pip install --upgrade pip \
+    && python -m pip install --no-cache-dir --find-links=/wheels /wheels/*.whl
+
+COPY app/ /workspace/app/
+WORKDIR /workspace/app
+RUN python -c "import subprocess, sys, tomllib; deps = tomllib.load(open('pyproject.toml', 'rb')).get('project', {}).get('dependencies', []); subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--no-cache-dir', '--find-links=/wheels', *deps]) if deps else None"
+ENV PYTHONPATH=/workspace/app
+
+COPY strip_prefix.py /workspace/strip_prefix.py
+
+ENV PORT=8003
+EXPOSE 8003
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -sf http://localhost:8003/health || exit 1
+
+CMD ["python", "/workspace/strip_prefix.py"]

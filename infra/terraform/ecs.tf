@@ -185,6 +185,14 @@ resource "aws_ecs_task_definition" "customer_app" {
       {
         name  = "DBOS__VMID"
         value = "${var.project_name}-${var.environment}-customer-app"
+      },
+      {
+        name  = "ASGI_APP"
+        value = var.asgi_app
+      },
+      {
+        name  = "PATH_PREFIX"
+        value = var.path_prefix
       }
     ]
     secrets = local.common_secrets
@@ -259,6 +267,10 @@ resource "aws_ecs_task_definition" "customer_worker" {
       {
         name  = "DBOS__VMID"
         value = "${var.project_name}-${var.environment}-customer-worker"
+      },
+      {
+        name  = "WORKER_TARGET"
+        value = var.worker_target
       },
       {
         name  = "WORKER_CONCURRENCY"
