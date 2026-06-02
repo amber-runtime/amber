@@ -72,7 +72,7 @@ CloudFormation template.
 
 1. **ECR bootstrap** - create the ECR repositories before image push
 2. **Docker** - stage contexts, build images, and push to ECR
-3. **Terraform apply** - deploy the full AWS stack with the pushed image tag
+3. **Terraform apply** - deploy the full AWS stack with a fresh image tag so ECS rolls onto the current code
 4. **Frontend** - sync bundled React dashboard assets to S3 and invalidate CloudFront
 5. **Summary** - print dashboard and API URLs
 

@@ -208,6 +208,7 @@ def _assemble_customer_context(repo_root: Path, build_root: Path, service: str, 
     _copy_file(docker_assets / ".dockerignore", context / ".dockerignore")
     entrypoint = "strip_prefix.py" if service == "customer-app" else "run_worker.py"
     _copy_file(docker_assets / entrypoint, context / entrypoint)
+    _copy_file(docker_assets / "install_app_deps.py", context / "install_app_deps.py")
     return context
 
 
@@ -378,10 +379,11 @@ def _restart_ecs(session, cluster: str, services: list[str], region: str) -> Non
 
 
 def _image_tag(repo_root: Path) -> str:
+    timestamp = str(int(time.time()))
     result = _run(["git", "rev-parse", "--short", "HEAD"], cwd=repo_root, check=False)
     if result.returncode == 0 and result.stdout.strip():
-        return result.stdout.strip()
-    return str(int(time.time()))
+        return f"{result.stdout.strip()}-{timestamp}"
+    return timestamp
 
 
 @click.command()
