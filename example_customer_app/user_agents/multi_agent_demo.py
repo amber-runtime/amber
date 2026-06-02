@@ -17,6 +17,8 @@ REQUIRED_SPECIALISTS = ("flight", "hotel", "local", "budget")
 MAX_COORDINATOR_DECISIONS = 6
 SPECIALIST_AGENTS: dict[str, Agent] = {}
 CRASH_DURING_HOTEL_DIRECTIVE = "[checkpoint:crash_during_hotel]"
+CRASH_KEY_TRAVEL_HOTEL_QUOTES = "travel_hotel_quotes"
+CRASH_MARKER_TABLE = "travel_crash_demo_markers"
 CRASH_MARKER_DIR = Path("/tmp/dbos-travel-concierge-crashes")
 CRASH_REQUEST_DIR = Path("/tmp/dbos-travel-concierge-crash-requests")
 
@@ -52,9 +54,25 @@ def _crash_marker_path(workflow_id: str) -> Path:
     return CRASH_MARKER_DIR / _workflow_file_key(workflow_id)
 
 
-def _request_hotel_crash(workflow_id: str | None) -> None:
-    if not workflow_id:
-        return
+def _crash_db_url() -> str | None:
+    return os.environ.get("DB_URL") or os.environ.get("DBOS_SYSTEM_DATABASE_URL")
+
+
+def _ensure_crash_marker_table(cur: Any) -> None:
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {CRASH_MARKER_TABLE} (
+            workflow_id TEXT NOT NULL,
+            crash_key TEXT NOT NULL,
+            requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            crashed_at TIMESTAMPTZ NULL,
+            PRIMARY KEY (workflow_id, crash_key)
+        )
+        """
+    )
+
+
+def _request_hotel_crash_local(workflow_id: str) -> None:
     CRASH_REQUEST_DIR.mkdir(parents=True, exist_ok=True)
     _crash_request_path(workflow_id).write_text(
         "crash during hotel quotes\n",
@@ -62,21 +80,94 @@ def _request_hotel_crash(workflow_id: str | None) -> None:
     )
 
 
-def _crash_once_during_hotel(workflow_id: str | None) -> None:
+@step(name="request_hotel_crash_demo")
+def _request_hotel_crash(workflow_id: str | None) -> None:
     if not workflow_id:
         return
 
+    db_url = _crash_db_url()
+    if not db_url:
+        logger.warning(
+            "DB_URL/DBOS_SYSTEM_DATABASE_URL is not set; using local /tmp crash demo marker"
+        )
+        _request_hotel_crash_local(workflow_id)
+        return
+
+    import psycopg2
+
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            _ensure_crash_marker_table(cur)
+            cur.execute(
+                f"""
+                INSERT INTO {CRASH_MARKER_TABLE} (workflow_id, crash_key)
+                VALUES (%s, %s)
+                ON CONFLICT (workflow_id, crash_key) DO NOTHING
+                """,
+                (workflow_id, CRASH_KEY_TRAVEL_HOTEL_QUOTES),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _should_crash_hotel_quote_from_db(workflow_id: str) -> bool:
+    db_url = _crash_db_url()
+    if not db_url:
+        return False
+
+    import psycopg2
+
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            _ensure_crash_marker_table(cur)
+            cur.execute(
+                f"""
+                UPDATE {CRASH_MARKER_TABLE}
+                SET crashed_at = NOW()
+                WHERE workflow_id = %s
+                  AND crash_key = %s
+                  AND crashed_at IS NULL
+                RETURNING 1
+                """,
+                (workflow_id, CRASH_KEY_TRAVEL_HOTEL_QUOTES),
+            )
+            should_crash = cur.fetchone() is not None
+        conn.commit()
+        return should_crash
+    finally:
+        conn.close()
+
+
+def _should_crash_hotel_quote_local(workflow_id: str) -> bool:
     request_path = _crash_request_path(workflow_id)
     if not request_path.exists():
-        return
+        return False
 
     marker_path = _crash_marker_path(workflow_id)
     if marker_path.exists():
-        return
+        return False
 
     CRASH_MARKER_DIR.mkdir(parents=True, exist_ok=True)
     marker_path.write_text("crashed once during hotel quotes\n", encoding="utf-8")
     request_path.unlink(missing_ok=True)
+    return True
+
+
+def _crash_once_during_hotel(workflow_id: str | None) -> None:
+    if not workflow_id:
+        return
+
+    should_crash = (
+        _should_crash_hotel_quote_from_db(workflow_id)
+        if _crash_db_url()
+        else _should_crash_hotel_quote_local(workflow_id)
+    )
+    if not should_crash:
+        return
+
     logger.warning("Intentional demo crash during get_hotel_quotes")
     os.kill(os.getpid(), signal.SIGTERM)
 

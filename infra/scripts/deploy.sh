@@ -19,6 +19,10 @@ cd "$(git rev-parse --show-toplevel)"
 
 echo "==> Working in: $(pwd)"
 
+terraform_output() {
+  terraform -chdir="$TF_DIR" output -raw "$1"
+}
+
 # ── Terraform ─────────────────────────────────────────────────────────────────
 
 echo "==> Initializing Terraform..."
@@ -36,24 +40,31 @@ case "$ACTION" in
     echo "==> Infrastructure updated."
     ;;
   full)
-    echo "==> Running terraform apply..."
-    terraform -chdir="$TF_DIR" apply -auto-approve
+    # Build/push FIRST so the SHA-tagged images exist before Terraform points the
+    # task definitions at them. TAG is the git short SHA, shared with build-push.
+    TAG="$(git rev-parse --short HEAD)"
+    echo "==> Building and pushing Docker images (tag: $TAG)..."
+    IMAGE_TAG="$TAG" bash infra/scripts/build-push.sh all
 
-    echo "==> Building and pushing Docker images..."
-    bash infra/scripts/build-push.sh all
+    echo "==> Running terraform apply (image_tag=$TAG)..."
+    terraform -chdir="$TF_DIR" apply -auto-approve -var "image_tag=$TAG"
 
-    echo "==> Restarting ECS services..."
+    # A new image_tag already bumps the task-def revision (triggering a deploy);
+    # force-new-deployment additionally guarantees rollout when the SHA is
+    # unchanged (e.g. rebuilding the same commit).
+    echo "==> Forcing new ECS deployments..."
+    CLUSTER="$(terraform_output ecs_cluster_name)"
     aws ecs update-service \
-      --cluster amber-dev \
-      --service amber-dev-dashboard-api \
+      --cluster "$CLUSTER" \
+      --service "$(terraform_output dashboard_api_service_name)" \
       --force-new-deployment --no-cli-pager
     aws ecs update-service \
-      --cluster amber-dev \
-      --service amber-dev-customer-app \
+      --cluster "$CLUSTER" \
+      --service "$(terraform_output customer_app_service_name)" \
       --force-new-deployment --no-cli-pager
     aws ecs update-service \
-      --cluster amber-dev \
-      --service amber-dev-customer-worker \
+      --cluster "$CLUSTER" \
+      --service "$(terraform_output customer_worker_service_name)" \
       --force-new-deployment --no-cli-pager
 
     echo "==> Deploying frontend..."

@@ -93,11 +93,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_events_event_key ON agent_events (ev
 def _connect_kwargs() -> dict[str, Any]:
     return {
         "connect_timeout": _CONNECT_TIMEOUT_SECONDS,
-        "options": (
-            f"-c statement_timeout={_STATEMENT_TIMEOUT_MS} "
-            f"-c lock_timeout={_LOCK_TIMEOUT_MS}"
-        ),
     }
+
+
+def _configure_connection_timeouts(conn) -> None:
+    with conn.cursor() as cur:
+        cur.execute("SET statement_timeout = %s", (_STATEMENT_TIMEOUT_MS,))
+        cur.execute("SET lock_timeout = %s", (_LOCK_TIMEOUT_MS,))
 
 
 def _get_pool(db_url: str) -> psycopg2.pool.ThreadedConnectionPool:
@@ -119,6 +121,7 @@ def ensure_tables(db_url: str) -> None:
     conn = psycopg2.connect(db_url, **_connect_kwargs())
     conn.autocommit = False
     try:
+        _configure_connection_timeouts(conn)
         with conn.cursor() as cur:
             cur.execute(_DDL)
             cur.execute(_MIGRATION_SQL)
@@ -146,6 +149,7 @@ def _write_agent_event(db_url: str, record: dict[str, Any]) -> None:
     conn = pool.getconn()
     conn.autocommit = False
     try:
+        _configure_connection_timeouts(conn)
         with conn.cursor() as cur:
             psycopg2.extras.execute_values(
                 cur,

@@ -72,16 +72,12 @@ function StepBar({
   workflowEnd,
   workflowIsActive,
   visualActiveStepId,
-  downtimeIntervals,
-  nowMs,
 }: {
   step: Step
   workflowStart: number
   workflowEnd: number
   workflowIsActive: boolean
   visualActiveStepId: number | null
-  downtimeIntervals: DowntimeInterval[]
-  nowMs: number
 }) {
   const hasTiming = stepTimelineStartedAtMs(step) != null
   const hasError = step.status === 'ERROR'
@@ -115,8 +111,6 @@ export function StepRow({
   workflowEnd,
   workflowIsActive,
   visualActiveStepId,
-  downtimeIntervals,
-  nowMs,
 }: Props) {
   const stepId = step.step_id
   const kind = getStepKind(step)
@@ -165,8 +159,6 @@ export function StepRow({
         workflowEnd={workflowEnd}
         workflowIsActive={workflowIsActive}
         visualActiveStepId={visualActiveStepId}
-        downtimeIntervals={downtimeIntervals}
-        nowMs={nowMs}
       />
 
       {/* Right: duration */}

@@ -1743,12 +1743,44 @@ class TracingTests(unittest.TestCase):
         self.assertEqual(model.asserted_mode, "json")
         self.assertTrue(model.asserted_exclude_unset)
 
-    def test_connect_kwargs_include_short_timeouts(self):
+    def test_connect_kwargs_include_short_connect_timeout_without_startup_options(self):
         kwargs = self.tracing._connect_kwargs()
 
         self.assertEqual(kwargs["connect_timeout"], 3)
-        self.assertIn("statement_timeout=3000", kwargs["options"])
-        self.assertIn("lock_timeout=1000", kwargs["options"])
+        self.assertNotIn("options", kwargs)
+
+    def test_configure_connection_timeouts_sets_session_values_after_connect(self):
+        conn = mock.MagicMock()
+        cursor = conn.cursor.return_value.__enter__.return_value
+
+        self.tracing._configure_connection_timeouts(conn)
+
+        cursor.execute.assert_has_calls(
+            [
+                mock.call("SET statement_timeout = %s", (3000,)),
+                mock.call("SET lock_timeout = %s", (1000,)),
+            ]
+        )
+
+    def test_ensure_tables_configures_timeouts_after_connect(self):
+        conn = mock.MagicMock()
+        cursor = conn.cursor.return_value.__enter__.return_value
+        with mock.patch.object(
+            self.tracing.psycopg2,
+            "connect",
+            return_value=conn,
+        ) as connect:
+            self.tracing.ensure_tables("postgresql://db")
+
+        connect.assert_called_once_with("postgresql://db", connect_timeout=3)
+        self.assertEqual(
+            cursor.execute.call_args_list[:2],
+            [
+                mock.call("SET statement_timeout = %s", (3000,)),
+                mock.call("SET lock_timeout = %s", (1000,)),
+            ],
+        )
+        conn.commit.assert_called_once()
 
     def test_connection_pool_is_reused_and_bounded(self):
         fake_pool = object()

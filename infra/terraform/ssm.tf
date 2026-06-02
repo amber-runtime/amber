@@ -2,10 +2,8 @@
 # SSM Parameter Store — secrets the app needs at runtime
 # =============================================================================
 # Set these after apply:
-#   aws ssm put-parameter --name /amber/dev/openai-api-key \
+#   aws ssm put-parameter --name /app/<project_name>/<environment>/openai-api-key \
 #       --value "sk-..." --type SecureString --overwrite
-#   aws ssm put-parameter --name /amber/dev/dbos-conductor-key \
-#       --value "dbos..." --type SecureString --overwrite
 # =============================================================================
 
 resource "aws_ssm_parameter" "openai_api_key" {
@@ -19,17 +17,4 @@ resource "aws_ssm_parameter" "openai_api_key" {
   }
 
   tags = { Name = "${var.project_name}-${var.environment}-openai-api-key" }
-}
-
-resource "aws_ssm_parameter" "dbos_conductor_key" {
-  name        = "/app/${var.project_name}/${var.environment}/dbos-conductor-key"
-  description = "DBOS Conductor key for durable execution"
-  type        = "SecureString"
-  value       = "placeholder-set-me-after-apply"
-
-  lifecycle {
-    ignore_changes = [value]
-  }
-
-  tags = { Name = "${var.project_name}-${var.environment}-dbos-conductor-key" }
 }

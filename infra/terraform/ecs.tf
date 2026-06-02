@@ -1,9 +1,10 @@
 # =============================================================================
-# ECS Fargate — dashboard-api + customer-app
+# ECS Fargate — dashboard-api + customer-app + customer-worker
 # =============================================================================
-# Two services:
+# Three services:
 #   dashboard-api (port 8001) — read-only workflow viewer
 #   customer-app  (port 8003) — agent runtime, triggers workflows
+#   customer-worker (port 8004) — DBOS queue consumer + queue metrics emitter
 #
 # Both run in private subnets behind the ALB. Traffic comes through
 # path-based routing on the ALB.
@@ -17,9 +18,9 @@ resource "aws_iam_role" "ecs_execution" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect = "Allow"
+      Effect    = "Allow"
       Principal = { Service = "ecs-tasks.amazonaws.com" }
-      Action = "sts:AssumeRole"
+      Action    = "sts:AssumeRole"
     }]
   })
 }
@@ -41,11 +42,10 @@ resource "aws_iam_policy" "ecs_execution_secrets" {
         Resource = [aws_secretsmanager_secret.db.arn]
       },
       {
-        Effect   = "Allow"
-        Action   = ["ssm:GetParameter", "ssm:GetParameters"]
+        Effect = "Allow"
+        Action = ["ssm:GetParameter", "ssm:GetParameters"]
         Resource = [
           aws_ssm_parameter.openai_api_key.arn,
-          aws_ssm_parameter.dbos_conductor_key.arn,
         ]
       },
       {
@@ -84,10 +84,6 @@ locals {
       name      = "OPENAI_API_KEY"
       valueFrom = aws_ssm_parameter.openai_api_key.arn
     },
-    {
-      name      = "DBOS_CONDUCTOR_KEY"
-      valueFrom = aws_ssm_parameter.dbos_conductor_key.arn
-    },
   ]
 }
 
@@ -97,22 +93,27 @@ resource "aws_ecs_task_definition" "dashboard_api" {
   family                   = "${var.project_name}-${var.environment}-dashboard-api"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = "256"  # 0.25 vCPU — lightweight read-only service
-  memory                   = "512"  # 0.5 GB
+  cpu                      = "256" # 0.25 vCPU — lightweight read-only service
+  memory                   = "512" # 0.5 GB
   execution_role_arn       = aws_iam_role.ecs_execution.arn
   task_role_arn            = aws_iam_role.ecs_execution.arn
 
   container_definitions = jsonencode([{
     name  = "dashboard-api"
-    image = "${aws_ecr_repository.dashboard_api.repository_url}:latest"
+    image = "${aws_ecr_repository.dashboard_api.repository_url}:${var.image_tag}"
 
     portMappings = [{
       containerPort = 8001
       protocol      = "tcp"
     }]
 
-    environment = []
-    secrets     = local.common_secrets
+    environment = [
+      {
+        name  = "DBOS__VMID"
+        value = "${var.project_name}-${var.environment}-dashboard-api"
+      }
+    ]
+    secrets = local.common_secrets
 
     logConfiguration = {
       logDriver = "awslogs"
@@ -124,7 +125,7 @@ resource "aws_ecs_task_definition" "dashboard_api" {
     }
 
     healthCheck = {
-      command     = ["CMD-SHELL", "curl -sf http://localhost:8001/docs || exit 1"]
+      command     = ["CMD-SHELL", "curl -sf http://localhost:8001/health || exit 1"]
       interval    = 30
       timeout     = 5
       retries     = 3
@@ -146,8 +147,8 @@ resource "aws_ecs_service" "dashboard_api" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets         = module.vpc.private_subnets
-    security_groups = [aws_security_group.dashboard_api.id]
+    subnets          = module.vpc.private_subnets
+    security_groups  = [aws_security_group.dashboard_api.id]
     assign_public_ip = false
   }
 
@@ -173,15 +174,20 @@ resource "aws_ecs_task_definition" "customer_app" {
 
   container_definitions = jsonencode([{
     name  = "customer-app"
-    image = "${aws_ecr_repository.customer_app.repository_url}:latest"
+    image = "${aws_ecr_repository.customer_app.repository_url}:${var.image_tag}"
 
     portMappings = [{
       containerPort = 8003
       protocol      = "tcp"
     }]
 
-    environment = []
-    secrets     = local.common_secrets
+    environment = [
+      {
+        name  = "DBOS__VMID"
+        value = "${var.project_name}-${var.environment}-customer-app"
+      }
+    ]
+    secrets = local.common_secrets
 
     logConfiguration = {
       logDriver = "awslogs"
@@ -193,7 +199,7 @@ resource "aws_ecs_task_definition" "customer_app" {
     }
 
     healthCheck = {
-      command     = ["CMD-SHELL", "curl -sf http://localhost:8003/docs || exit 1"]
+      command     = ["CMD-SHELL", "curl -sf http://localhost:8003/health || exit 1"]
       interval    = 30
       timeout     = 5
       retries     = 3
@@ -215,8 +221,8 @@ resource "aws_ecs_service" "customer_app" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets         = module.vpc.private_subnets
-    security_groups = [aws_security_group.customer_app.id]
+    subnets          = module.vpc.private_subnets
+    security_groups  = [aws_security_group.customer_app.id]
     assign_public_ip = false
   }
 
@@ -242,15 +248,48 @@ resource "aws_ecs_task_definition" "customer_worker" {
 
   container_definitions = jsonencode([{
     name  = "customer-worker"
-    image = "${aws_ecr_repository.customer_worker.repository_url}:latest"
+    image = "${aws_ecr_repository.customer_worker.repository_url}:${var.image_tag}"
 
     portMappings = [{
       containerPort = 8004
       protocol      = "tcp"
     }]
 
-    environment = []
-    secrets     = local.common_secrets
+    environment = [
+      {
+        name  = "DBOS__VMID"
+        value = "${var.project_name}-${var.environment}-customer-worker"
+      },
+      {
+        name  = "WORKER_CONCURRENCY"
+        value = tostring(var.worker_concurrency)
+      },
+      {
+        name  = "PROJECT_NAME"
+        value = var.project_name
+      },
+      {
+        name  = "ENVIRONMENT"
+        value = var.environment
+      },
+      {
+        name  = "SERVICE_NAME"
+        value = "customer-worker"
+      },
+      {
+        name  = "QUEUE_METRICS_ENABLED"
+        value = "true"
+      },
+      {
+        name  = "QUEUE_METRICS_NAMESPACE"
+        value = "Amber/Queues"
+      },
+      {
+        name  = "QUEUE_METRICS_INTERVAL_SECONDS"
+        value = "60"
+      }
+    ]
+    secrets = local.common_secrets
 
     logConfiguration = {
       logDriver = "awslogs"
@@ -284,8 +323,8 @@ resource "aws_ecs_service" "customer_worker" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets         = module.vpc.private_subnets
-    security_groups = [aws_security_group.customer_worker.id]
+    subnets          = module.vpc.private_subnets
+    security_groups  = [aws_security_group.customer_worker.id]
     assign_public_ip = false
   }
 

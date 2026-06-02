@@ -14,34 +14,29 @@
 set -euo pipefail
 
 REGION="${AWS_REGION:-us-east-1}"
-BUCKET="amber-dev-frontend"
-DIST_ID=""  # set after first terraform apply: grep for cloudfront_domain in outputs
+TF_DIR="infra/terraform"
+VITE_API_BASE_URL="${VITE_API_BASE_URL:-/dashboard}"
+VITE_CUSTOMER_APP_URL="${VITE_CUSTOMER_APP_URL:-/api}"
+
+cd "$(git rev-parse --show-toplevel)"
+
+BUCKET="$(terraform -chdir="$TF_DIR" output -raw frontend_bucket_name)"
+DIST_ID="$(terraform -chdir="$TF_DIR" output -raw cloudfront_distribution_id)"
 
 echo "==> Installing dashboard dependencies..."
 cd dashboard
 npm ci
 
 echo "==> Building dashboard..."
-npm run build
+VITE_API_BASE_URL="$VITE_API_BASE_URL" \
+VITE_CUSTOMER_APP_URL="$VITE_CUSTOMER_APP_URL" \
+  npm run build
 
 echo "==> Syncing to S3..."
 aws s3 sync dist/ "s3://${BUCKET}/" --delete
 
 echo "==> Invalidating CloudFront cache..."
-if [ -z "$DIST_ID" ]; then
-  # Try to get the distribution ID automatically
-  DIST_ID=$(aws cloudfront list-distributions \
-    --query "DistributionList.Items[?Comment==''].Id | [0]" \
-    --output text 2>/dev/null || echo "")
-fi
-
-if [ -n "$DIST_ID" ] && [ "$DIST_ID" != "None" ]; then
-  aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/*"
-  echo "==> CloudFront invalidation created."
-else
-  echo "==> WARNING: Could not determine CloudFront distribution ID."
-  echo "    Run manually:"
-  echo "    aws cloudfront create-invalidation --distribution-id <DIST_ID> --paths '/*'"
-fi
+aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/*"
+echo "==> CloudFront invalidation created."
 
 echo "==> Frontend deployed to s3://${BUCKET}/"

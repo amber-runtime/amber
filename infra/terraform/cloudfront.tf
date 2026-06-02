@@ -75,6 +75,13 @@ resource "aws_cloudfront_distribution" "main" {
       name  = "X-Forwarded-Host"
       value = aws_lb.main.dns_name
     }
+
+    # Shared secret the ALB listener checks before forwarding. Keeps direct
+    # hits to the ALB (or other CloudFront distributions) out of the backend.
+    custom_header {
+      name  = "X-Origin-Verify"
+      value = random_password.origin_verify.result
+    }
   }
 
   # /api/* → ALB → customer-app
@@ -92,9 +99,9 @@ resource "aws_cloudfront_distribution" "main" {
       cookies { forward = "all" }
     }
 
-    min_ttl = 0
+    min_ttl     = 0
     default_ttl = 0
-    max_ttl = 0
+    max_ttl     = 0
   }
 
   # /demo/* → ALB → customer-app (demo frontend + agent API)
@@ -112,9 +119,105 @@ resource "aws_cloudfront_distribution" "main" {
       cookies { forward = "all" }
     }
 
-    min_ttl = 0
+    min_ttl     = 0
     default_ttl = 0
-    max_ttl = 0
+    max_ttl     = 0
+  }
+
+  # Native customer-app routes → ALB → customer-app
+  ordered_cache_behavior {
+    path_pattern           = "/runs"
+    target_origin_id       = "alb"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD", "OPTIONS"]
+
+    forwarded_values {
+      query_string = true
+      headers      = ["Host", "Authorization", "Accept", "Content-Type"]
+
+      cookies { forward = "all" }
+    }
+
+    min_ttl     = 0
+    default_ttl = 0
+    max_ttl     = 0
+  }
+
+  ordered_cache_behavior {
+    path_pattern           = "/runs/*"
+    target_origin_id       = "alb"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD", "OPTIONS"]
+
+    forwarded_values {
+      query_string = true
+      headers      = ["Host", "Authorization", "Accept", "Content-Type"]
+
+      cookies { forward = "all" }
+    }
+
+    min_ttl     = 0
+    default_ttl = 0
+    max_ttl     = 0
+  }
+
+  ordered_cache_behavior {
+    path_pattern           = "/agents"
+    target_origin_id       = "alb"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD", "OPTIONS"]
+
+    forwarded_values {
+      query_string = true
+      headers      = ["Host", "Authorization", "Accept", "Content-Type"]
+
+      cookies { forward = "all" }
+    }
+
+    min_ttl     = 0
+    default_ttl = 0
+    max_ttl     = 0
+  }
+
+  ordered_cache_behavior {
+    path_pattern           = "/health"
+    target_origin_id       = "alb"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD", "OPTIONS"]
+
+    forwarded_values {
+      query_string = true
+      headers      = ["Host", "Authorization", "Accept", "Content-Type"]
+
+      cookies { forward = "all" }
+    }
+
+    min_ttl     = 0
+    default_ttl = 0
+    max_ttl     = 0
+  }
+
+  ordered_cache_behavior {
+    path_pattern           = "/static/*"
+    target_origin_id       = "alb"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD", "OPTIONS"]
+
+    forwarded_values {
+      query_string = true
+      headers      = ["Host", "Authorization", "Accept", "Content-Type"]
+
+      cookies { forward = "all" }
+    }
+
+    min_ttl     = 0
+    default_ttl = 0
+    max_ttl     = 0
   }
 
   # /dashboard/* → ALB → dashboard-api
@@ -132,9 +235,9 @@ resource "aws_cloudfront_distribution" "main" {
       cookies { forward = "all" }
     }
 
-    min_ttl = 0
+    min_ttl     = 0
     default_ttl = 0
-    max_ttl = 0
+    max_ttl     = 0
   }
 
   # Default: S3 frontend (SPA)

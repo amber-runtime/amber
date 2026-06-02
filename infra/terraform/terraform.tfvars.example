@@ -5,15 +5,41 @@
 # Copy this file:  cp terraform.tfvars.example terraform.tfvars
 # =============================================================================
 
+# These values are the future Amber config inputs that should map directly into
+# Terraform variables. For manual testing, copy this file to terraform.tfvars and
+# edit them here.
+#
+# Use a short, lowercase, hyphenated project name to avoid AWS name limits.
+# Allowed environments are dev, staging, and prod.
 project_name = "amber"
 environment  = "dev"
 region       = "us-east-1"
 
-# Database — change the password! Generated password is used if blank.
+# The frontend S3 bucket is generated as:
+#   <project_name>-<environment>-<aws_account_id>-frontend
+# Example:
+#   amber-dev-123456789012-frontend
+#
+# Dev/test default: let terraform destroy delete frontend assets and all object
+# versions. Set false for production-like stacks where asset history should not
+# be silently deleted during destroy.
+frontend_bucket_force_destroy = true
+
+# Dev/test default: skip the Secrets Manager recovery window so terraform destroy
+# purges the db secrets immediately and their names can be reused on the next
+# apply. Set false for production-like stacks to keep a 30-day recovery window.
+secrets_force_destroy = true
+
+# Database. Leave db_password unset to let Terraform generate one and store it
+# in Secrets Manager.
 db_name     = "app"
 db_username = "dbadmin"
 # db_password = "generate-me-or-set-manually"
 
-# RDS sizing — bump for production
+# RDS sizing. Bump these for production.
 db_instance_class    = "db.t4g.micro"
 db_allocated_storage = 20
+
+# Worker sizing. Amber CLI can expose this as a config value later; changing it
+# requires an ECS worker redeploy/restart.
+worker_concurrency = 4

@@ -17,7 +17,7 @@ dist/
 *.tfstate.*
 *.tfvars
 !terraform.tfvars.example
-.terraform.lock.hcl
+# .terraform.lock.hcl is committed on purpose to pin provider versions/checksums
 crash.log
 crash.*.log
 

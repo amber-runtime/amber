@@ -20,16 +20,32 @@ AWS infrastructure for the Playground app, managed with Terraform.
             dashboard-api:8001   customer-app:8003
             (FastAPI + DBOS)     (FastAPI + DBOS + OpenAI Agents)
                     │                   │
-                    └───────┬───────────┘
-                            ▼
-                      RDS Postgres 16
+                    │                   │
+                    │        customer-worker:8004
+                    │     (DBOS queue consumer)
+                    │                   │
+                    └─────────┬─────────┘
+                              ▼
+                          RDS Proxy
+                              │
+                              ▼
+                        RDS Postgres 16
+
+                    customer-worker:8004
+                              │
+                              ▼
+                   CloudWatch Logs + Metrics
+               QueueBacklog / QueueActive / QueueOpen
 ```
 
 - **CloudFront** terminates HTTPS and routes by path prefix
 - **ALB** forwards `/dashboard/*` to the dashboard API and `/api/*` to the customer app
 - **S3** serves the React SPA for the root path
-- **ECS Fargate** runs both backend services
+- **ECS Fargate** runs the dashboard API, customer app, and customer worker
+- **customer-worker** drains the DBOS `agent-runs` queue
+- **RDS Proxy** pools ECS database connections before RDS
 - **RDS Postgres 16** shared database
+- **CloudWatch Logs + Metrics** receives worker-emitted queue observability metrics; these are not wired to ECS autoscaling yet
 
 ## Directory Layout
 
@@ -41,6 +57,7 @@ infra/
 │   ├── alb.tf          # Application Load Balancer + listeners
 │   ├── ecs.tf          # ECS cluster + Fargate services
 │   ├── rds.tf          # Postgres 16 instance
+│   ├── rds_proxy.tf    # RDS Proxy connection pooling
 │   ├── ecr.tf          # ECR repositories
 │   ├── s3.tf           # S3 bucket for frontend
 │   ├── cloudfront.tf   # CloudFront distribution
@@ -53,7 +70,9 @@ infra/
 ├── docker/             # Container definitions
 │   ├── Dockerfile.dashboard-api
 │   ├── Dockerfile.customer-app
-│   └── strip_prefix.py   # Middleware to strip ALB path prefixes
+│   ├── Dockerfile.customer-worker
+│   ├── run_worker.py      # Worker health endpoint + queue metrics publisher
+│   └── strip_prefix.py    # Middleware to strip ALB path prefixes
 └── scripts/            # Helper scripts (run from repo root)
     ├── build-push.sh      # Build + push Docker images to ECR
     ├── deploy.sh          # Terraform apply + full deploy
@@ -74,7 +93,22 @@ infra/
 ```bash
 cd infra/terraform
 cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars if you need to change defaults
+# For teammate testing, set project_name, environment, and region.
+```
+
+Use a short, lowercase, hyphenated `project_name`, such as `amber-andy` or
+`acme-demo`. The frontend S3 bucket includes your AWS account ID to reduce
+global bucket-name collisions:
+
+```text
+<project_name>-<environment>-<aws_account_id>-frontend
+```
+
+If you use a named AWS CLI profile, export it once before running the infra
+commands. Use your own profile name; it does not need to be `amber-dev`.
+
+```bash
+export AWS_PROFILE=<your-profile>
 ```
 
 ### 2. Create the infrastructure
@@ -92,7 +126,30 @@ terraform init
 terraform apply
 ```
 
-### 3. Build and push Docker images
+### 3. Set the OpenAI API key
+
+Terraform creates a placeholder SSM parameter during the first apply. Replace
+that placeholder with your real OpenAI API key before running the app. This
+command reads the SSM parameter name and AWS region from Terraform outputs, so
+only change the `--value` field.
+
+```bash
+OPENAI_PARAMETER_NAME="$(terraform -chdir=infra/terraform output -raw openai_api_key_parameter_name)"
+REGION="$(terraform -chdir=infra/terraform output -raw aws_region)"
+
+aws ssm put-parameter \
+  --region "$REGION" \
+  --name "$OPENAI_PARAMETER_NAME" \
+  --type "SecureString" \
+  --value "sk-replace-me" \
+  --overwrite
+```
+
+ECS tasks read secrets at startup, so restart or redeploy services after
+changing this value. The future Amber CLI flow will hide this AWS command behind
+`amber config set openai-api-key`.
+
+### 4. Build and push Docker images
 
 ```bash
 # Both services:
@@ -101,21 +158,22 @@ terraform apply
 # Or just one:
 ./infra/scripts/build-push.sh dashboard-api
 ./infra/scripts/build-push.sh customer-app
+./infra/scripts/build-push.sh customer-worker
 ```
 
-### 4. Deploy the frontend
+### 5. Deploy the frontend
 
 ```bash
 ./infra/scripts/deploy-frontend.sh
 ```
 
-### 5. Do everything at once
+### 6. Do everything at once
 
 ```bash
 ./infra/scripts/deploy.sh full
 ```
 
-This runs Terraform apply, builds/pushes both Docker images, restarts ECS services, and deploys the frontend.
+This runs Terraform apply, builds/pushes all backend Docker images, restarts ECS services, and deploys the frontend.
 
 ## Useful Commands
 
@@ -130,32 +188,46 @@ cd infra/terraform && terraform output
 terraform output -json
 
 # Restart ECS services (pick up new Docker images)
+REGION="$(terraform -chdir=infra/terraform output -raw aws_region)"
+CLUSTER="$(terraform -chdir=infra/terraform output -raw ecs_cluster_name)"
 aws ecs update-service \
-  --cluster amber-dev \
-  --service amber-dev-dashboard-api \
+  --region "$REGION" \
+  --cluster "$CLUSTER" \
+  --service "$(terraform -chdir=infra/terraform output -raw dashboard_api_service_name)" \
   --force-new-deployment
 
 aws ecs update-service \
-  --cluster amber-dev \
-  --service amber-dev-customer-app \
+  --region "$REGION" \
+  --cluster "$CLUSTER" \
+  --service "$(terraform -chdir=infra/terraform output -raw customer_app_service_name)" \
+  --force-new-deployment
+
+aws ecs update-service \
+  --region "$REGION" \
+  --cluster "$CLUSTER" \
+  --service "$(terraform -chdir=infra/terraform output -raw customer_worker_service_name)" \
   --force-new-deployment
 
 # Invalidate CloudFront cache after frontend changes
 aws cloudfront create-invalidation \
-  --distribution-id <DIST_ID> \
+  --distribution-id "$(terraform -chdir=infra/terraform output -raw cloudfront_distribution_id)" \
   --paths "/*"
 ```
 
 ## Teardown
 
 ```bash
-# Empty the S3 bucket first (Terraform can't delete non-empty buckets)
-aws s3 rm s3://amber-dev-frontend --recursive
-
-# Destroy all infrastructure
+# Destroy all infrastructure. For disposable dev stacks, the frontend bucket
+# uses frontend_bucket_force_destroy=true so Terraform can delete deployed
+# assets and all S3 object versions automatically.
 cd infra/terraform
 terraform destroy
 ```
+
+Set `frontend_bucket_force_destroy = false` for production-like stacks where
+frontend asset versions should not be deleted automatically. In that mode,
+destroying the stack requires explicitly deleting all S3 object versions and
+delete markers before Terraform can remove the bucket.
 
 Note: CloudFront distribution deletion takes ~10-15 minutes. Terraform will wait.
 
@@ -165,8 +237,9 @@ Secrets are stored in AWS and are NOT committed to the repo:
 
 | Secret | Location | Key/Name |
 |--------|----------|----------|
-| OpenAI API key | SSM Parameter Store | `/app/amber/dev/openai-api-key` |
-| DBOS Conductor key | SSM Parameter Store | `/app/amber/dev/dbos-conductor-key` |
-| Database connection URL | Secrets Manager | `amber-dev-db-url` |
+| OpenAI API key | SSM Parameter Store | `/app/<project_name>/<environment>/openai-api-key` |
+| Database connection URL | Secrets Manager | `<project_name>-<environment>/db` |
+| RDS Proxy credentials | Secrets Manager | `<project_name>-<environment>/db-credentials` |
 
-ECS tasks fetch these at startup via IAM role permissions.
+ECS tasks fetch the app secrets at startup via IAM role permissions. RDS Proxy
+uses its own IAM role to fetch the database credential secret.

@@ -21,17 +21,32 @@ resource "aws_lb" "main" {
 
 # --- ALB Security Group ---
 
+# AWS-managed prefix list of CloudFront's origin-facing IP ranges. Restricting
+# the ALB to these means the origin can only be reached from CloudFront, not the
+# open internet. The secret header (below) further ensures it's *our* distribution.
+data "aws_ec2_managed_prefix_list" "cloudfront" {
+  name = "com.amazonaws.global.cloudfront.origin-facing"
+}
+
+# Shared secret that CloudFront attaches as a custom header on every origin
+# request. The ALB listener rejects anything without it, so traffic that reaches
+# the ALB IPs directly (or via someone else's CloudFront distribution) gets a 403.
+resource "random_password" "origin_verify" {
+  length  = 40
+  special = false
+}
+
 resource "aws_security_group" "alb" {
   name        = "${var.project_name}-${var.environment}-alb"
-  description = "Allow HTTP from CloudFront and internet"
+  description = "Allow HTTP from CloudFront origin-facing ranges only"
   vpc_id      = module.vpc.vpc_id
 
   ingress {
-    description = "HTTP"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    description     = "HTTP from CloudFront only"
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront.id]
   }
 
   egress {
@@ -55,7 +70,7 @@ resource "aws_lb_target_group" "dashboard_api" {
   vpc_id      = module.vpc.vpc_id
 
   health_check {
-    path                = "/docs"
+    path                = "/health"
     interval            = 30
     timeout             = 5
     healthy_threshold   = 2
@@ -92,13 +107,22 @@ resource "aws_lb_listener" "http" {
   port              = 80
   protocol          = "HTTP"
 
+  # Reject anything that doesn't carry the CloudFront origin-verify header.
+  # All real routing happens in the rules below, which also gate on the header.
   default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.customer_app.arn
+    type = "fixed-response"
+
+    fixed_response {
+      content_type = "text/plain"
+      message_body = "Forbidden"
+      status_code  = "403"
+    }
   }
 }
 
 # --- Listener Rules ---
+# Every rule requires the origin-verify header in addition to its path, so only
+# traffic proxied by our CloudFront distribution is forwarded to a target group.
 
 # /dashboard/*  → dashboard-api
 resource "aws_lb_listener_rule" "dashboard_api" {
@@ -113,6 +137,13 @@ resource "aws_lb_listener_rule" "dashboard_api" {
   condition {
     path_pattern {
       values = ["/dashboard/*", "/dashboard"]
+    }
+  }
+
+  condition {
+    http_header {
+      http_header_name = "X-Origin-Verify"
+      values           = [random_password.origin_verify.result]
     }
   }
 }
@@ -132,6 +163,13 @@ resource "aws_lb_listener_rule" "customer_app" {
       values = ["/api/*", "/api"]
     }
   }
+
+  condition {
+    http_header {
+      http_header_name = "X-Origin-Verify"
+      values           = [random_password.origin_verify.result]
+    }
+  }
 }
 
 # /demo/*  → customer-app (demo frontend + agent API)
@@ -147,6 +185,39 @@ resource "aws_lb_listener_rule" "customer_app_demo" {
   condition {
     path_pattern {
       values = ["/demo/*", "/demo"]
+    }
+  }
+
+  condition {
+    http_header {
+      http_header_name = "X-Origin-Verify"
+      values           = [random_password.origin_verify.result]
+    }
+  }
+}
+
+# Catch-all → customer-app. Replaces the old listener default_action (which
+# forwarded everything) so native customer-app routes like /runs and /agents
+# still work, while the header gate keeps direct ALB hits out.
+resource "aws_lb_listener_rule" "customer_app_default" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 900
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.customer_app.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/*"]
+    }
+  }
+
+  condition {
+    http_header {
+      http_header_name = "X-Origin-Verify"
+      values           = [random_password.origin_verify.result]
     }
   }
 }
