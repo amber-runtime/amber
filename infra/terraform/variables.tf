@@ -119,6 +119,36 @@ variable "db_allocated_storage" {
   default     = 20
 }
 
+variable "db_multi_az" {
+  description = "Run RDS in Multi-AZ mode. Amber CLI sets this true for prod."
+  type        = bool
+  default     = false
+}
+
+variable "db_deletion_protection" {
+  description = "Prevent accidental RDS deletion. Amber CLI sets this true for prod."
+  type        = bool
+  default     = false
+}
+
+variable "db_skip_final_snapshot" {
+  description = "Skip final snapshot when deleting RDS. Amber CLI sets this false for prod."
+  type        = bool
+  default     = true
+}
+
+variable "db_delete_automated_backups" {
+  description = "Delete automated backups with the RDS instance. Amber CLI sets this false for prod."
+  type        = bool
+  default     = true
+}
+
+variable "db_backup_retention_period" {
+  description = "RDS backup retention in days. Amber CLI uses longer retention for prod."
+  type        = number
+  default     = 7
+}
+
 variable "db_password" {
   description = "Master database password (leave empty to auto-generate)"
   type        = string
@@ -139,10 +169,82 @@ variable "db_engine_version" {
 variable "worker_concurrency" {
   description = "Number of workflows each customer-worker task can run concurrently"
   type        = number
-  default     = 4
+  default     = 8
 
   validation {
     condition     = var.worker_concurrency >= 1 && var.worker_concurrency <= 100
     error_message = "worker_concurrency must be between 1 and 100."
+  }
+}
+
+variable "worker_autoscaling_enabled" {
+  description = "Enable ECS Service Auto Scaling for customer-worker tasks."
+  type        = bool
+  default     = true
+}
+
+variable "worker_min_tasks" {
+  description = "Minimum number of customer-worker ECS tasks to keep running."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.worker_min_tasks >= 1 && var.worker_min_tasks <= 100
+    error_message = "worker_min_tasks must be between 1 and 100."
+  }
+}
+
+variable "worker_max_tasks" {
+  description = "Maximum number of customer-worker ECS tasks. Defaults to 2 for dev/staging and 4 for prod."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.worker_max_tasks == null || (var.worker_max_tasks >= 1 && var.worker_max_tasks <= 100)
+    error_message = "worker_max_tasks must be between 1 and 100."
+  }
+}
+
+variable "worker_backlog_target" {
+  description = "Target QueueBacklog count for customer-worker ECS target tracking."
+  type        = number
+  default     = 8
+
+  validation {
+    condition     = var.worker_backlog_target >= 1
+    error_message = "worker_backlog_target must be at least 1."
+  }
+}
+
+variable "worker_scale_out_cooldown_seconds" {
+  description = "Seconds ECS autoscaling waits between customer-worker scale-out actions."
+  type        = number
+  default     = 60
+
+  validation {
+    condition     = var.worker_scale_out_cooldown_seconds >= 0
+    error_message = "worker_scale_out_cooldown_seconds must be non-negative."
+  }
+}
+
+variable "worker_scale_in_cooldown_seconds" {
+  description = "Seconds ECS autoscaling waits between customer-worker scale-in actions."
+  type        = number
+  default     = 300
+
+  validation {
+    condition     = var.worker_scale_in_cooldown_seconds >= 0
+    error_message = "worker_scale_in_cooldown_seconds must be non-negative."
+  }
+}
+
+variable "worker_queue_name" {
+  description = "DBOS queue name emitted in customer-worker queue metrics."
+  type        = string
+  default     = "agent-runs"
+
+  validation {
+    condition     = length(trimspace(var.worker_queue_name)) > 0
+    error_message = "worker_queue_name must not be empty."
   }
 }

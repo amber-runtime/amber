@@ -120,7 +120,7 @@ class WorkerService:
         *,
         agent_modules: list[str] | tuple[str, ...] = (),
         queue_name: str = DEFAULT_AGENT_QUEUE,
-        worker_concurrency: int | None = 4,
+        worker_concurrency: int | None = 8,
         concurrency: int | None = None,
         limiter: dict[str, Any] | None = None,
         priority_enabled: bool = False,
@@ -211,7 +211,7 @@ class AgentRuntime:
         *,
         agent_modules: list[str] | tuple[str, ...] = (),
         queue_name: str = DEFAULT_AGENT_QUEUE,
-        worker_concurrency: int | None = 4,
+        worker_concurrency: int | None = 8,
         queue_concurrency: int | None = None,
     ) -> None:
         self.runtime = runtime or Runtime()

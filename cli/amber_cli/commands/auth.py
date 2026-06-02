@@ -10,13 +10,10 @@ from pathlib import Path
 import click
 from rich.console import Console
 
-from amber_cli.assets import asset_path
 from amber_cli.aws_auth import AWSAuthError, print_auth_error, verify_identity
 from amber_cli.config_loader import find_config_path, load_config
 
 console = Console()
-
-CLOUDFORMATION_URL = "https://console.aws.amazon.com/cloudformation/home#/stacks/create/template"
 
 
 def _run_aws(args: list[str], *, interactive: bool = False, input_text: str | None = None) -> None:
@@ -100,34 +97,13 @@ def _prompt_region(default: str) -> str:
     return click.prompt("AWS region", default=default).strip()
 
 
-def _setup_sso(default_region: str, profile_option: str, region_option: str) -> None:
-    profile = profile_option or _prompt_profile("amber")
+def _setup_sso(default_region: str, default_profile: str, profile_option: str, region_option: str) -> None:
+    profile = profile_option or _prompt_profile(default_profile)
     region = region_option or _prompt_region(default_region)
     console.print()
     console.print("[bold]Configuring AWS SSO / IAM Identity Center[/bold]")
-    console.print("Amber will use the AWS CLI's SSO wizard, then verify the profile.")
+    console.print("Amber will use the AWS CLI's SSO wizard and then verify the profile.")
     _run_aws(["configure", "sso", "--profile", profile], interactive=True)
-    _run_aws(["sso", "login", "--profile", profile], interactive=True)
-    _save_verified_profile(profile, region)
-
-
-def _setup_cloudformation(default_region: str, profile_option: str, region_option: str) -> None:
-    profile = profile_option or _prompt_profile("amber")
-    region = region_option or _prompt_region(default_region)
-    console.print()
-    console.print("[bold]Create an Amber deploy identity in AWS[/bold]")
-    console.print("Use this path if you can sign into the AWS Console as an admin.")
-    console.print("Launch the CloudFormation stack, then paste the access key outputs here.")
-    console.print()
-    console.print(f"  Launch CloudFormation: {CLOUDFORMATION_URL}")
-    console.print(f"  Template:              {asset_path('bootstrap', 'amber-bootstrap.yaml')}")
-    console.print()
-    access_key = click.prompt("AccessKeyId from stack outputs").strip()
-    secret_key = click.prompt("SecretAccessKey from stack outputs", hide_input=True).strip()
-
-    _run_aws(["configure", "set", "aws_access_key_id", access_key, "--profile", profile])
-    _run_aws(["configure", "set", "aws_secret_access_key", secret_key, "--profile", profile])
-    _run_aws(["configure", "set", "region", region, "--profile", profile])
     _save_verified_profile(profile, region)
 
 
@@ -141,22 +117,15 @@ def auth() -> None:
 @click.option("--profile", default="", help="AWS profile to configure")
 @click.option("--region", default="", help="AWS region to save in amber.yaml")
 def setup(profile: str, region: str) -> None:
-    """Interactively configure AWS access for Amber deploys."""
+    """Configure AWS SSO access for Amber deploys."""
     cfg = load_config()
     if not cfg.name:
         console.print("[red]No amber.yaml found. Run 'amber init' first.[/red]")
         raise SystemExit(1)
 
     default_region = region or cfg.region or "us-east-1"
-    console.print("[bold]How do you access AWS?[/bold]")
-    console.print("  1. Use AWS SSO / IAM Identity Center")
-    console.print("  2. Create an Amber deploy profile with the CloudFormation helper")
-    choice = click.prompt("Choose an option", type=click.Choice(["1", "2"]), default="1")
-
-    if choice == "1":
-        _setup_sso(default_region, profile, region)
-    else:
-        _setup_cloudformation(default_region, profile, region)
+    default_profile = f"amber-{cfg.environment}" if cfg.environment in {"dev", "prod"} else "amber"
+    _setup_sso(default_region, default_profile, profile, region)
 
 
 @auth.command("login")
@@ -168,7 +137,7 @@ def login() -> None:
         raise SystemExit(1)
     if not cfg.profile:
         console.print("[red]No AWS profile is configured in amber.yaml.[/red]")
-        console.print("Run `amber auth setup` and choose AWS SSO first.")
+        console.print("Run `amber auth setup` first.")
         raise SystemExit(1)
 
     _run_aws(["sso", "login", "--profile", cfg.profile], interactive=True)

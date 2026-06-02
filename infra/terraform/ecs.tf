@@ -331,7 +331,7 @@ resource "aws_ecs_service" "customer_worker" {
   name            = "${var.project_name}-${var.environment}-customer-worker"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.customer_worker.arn
-  desired_count   = 1
+  desired_count   = var.worker_autoscaling_enabled ? var.worker_min_tasks : 1
   launch_type     = "FARGATE"
 
   network_configuration {
@@ -341,4 +341,8 @@ resource "aws_ecs_service" "customer_worker" {
   }
 
   # No load_balancer block — worker doesn't serve external traffic
+
+  lifecycle {
+    ignore_changes = [desired_count]
+  }
 }

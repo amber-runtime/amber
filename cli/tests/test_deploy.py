@@ -16,6 +16,10 @@ class FakeConfig:
     name: str = "test-project"
     project_prefix: str = ""
     environment: str = "dev"
+    region: str = "us-west-2"
+    app: str = "my_app.main:app"
+    worker: str = "my_app.main:agent_runtime"
+    path_prefix: str = "/api"
 
     @property
     def ssm_base(self) -> str:
@@ -171,6 +175,40 @@ def test_image_tag_falls_back_to_timestamp_without_git(monkeypatch, tmp_path: Pa
     monkeypatch.setattr(deploy_mod.time, "time", lambda: 1_717_171_718)
 
     assert deploy_mod._image_tag(tmp_path) == "1717171718"
+
+
+def test_write_tfvars_uses_dev_disposable_defaults(tmp_path: Path) -> None:
+    deploy_mod._write_tfvars(tmp_path, FakeConfig(environment="dev"), "tag")
+
+    tfvars = (tmp_path / "terraform.tfvars").read_text(encoding="utf-8")
+
+    assert 'environment = "dev"' in tfvars
+    assert "frontend_bucket_force_destroy = true" in tfvars
+    assert "secrets_force_destroy = true" in tfvars
+    assert "db_multi_az = false" in tfvars
+    assert "db_deletion_protection = false" in tfvars
+    assert "db_skip_final_snapshot = true" in tfvars
+    assert "db_delete_automated_backups = true" in tfvars
+    assert "db_backup_retention_period = 7" in tfvars
+    assert 'db_instance_class = "db.t4g.micro"' in tfvars
+    assert "db_allocated_storage = 20" in tfvars
+
+
+def test_write_tfvars_uses_prod_hardened_defaults(tmp_path: Path) -> None:
+    deploy_mod._write_tfvars(tmp_path, FakeConfig(environment="prod"), "tag")
+
+    tfvars = (tmp_path / "terraform.tfvars").read_text(encoding="utf-8")
+
+    assert 'environment = "prod"' in tfvars
+    assert "frontend_bucket_force_destroy = false" in tfvars
+    assert "secrets_force_destroy = false" in tfvars
+    assert "db_multi_az = true" in tfvars
+    assert "db_deletion_protection = true" in tfvars
+    assert "db_skip_final_snapshot = false" in tfvars
+    assert "db_delete_automated_backups = false" in tfvars
+    assert "db_backup_retention_period = 30" in tfvars
+    assert 'db_instance_class = "db.t4g.small"' in tfvars
+    assert "db_allocated_storage = 100" in tfvars
 
 
 def test_customer_context_copies_dependency_filter_assets(monkeypatch, tmp_path: Path) -> None:

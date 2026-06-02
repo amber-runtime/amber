@@ -103,13 +103,6 @@ def prepare_frontend() -> None:
     copy_tree(frontend / "dist", dst)
 
 
-def prepare_bootstrap() -> None:
-    dst = ASSETS / "bootstrap"
-    clean_dir(dst)
-    src = CLI_ROOT / "amber_cli" / "asset_sources" / "bootstrap" / "amber-bootstrap.yaml"
-    shutil.copy2(src, dst / src.name)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--skip-builds", action="store_true", help="Skip SDK wheel and frontend builds")
@@ -119,7 +112,6 @@ def main() -> None:
     prepare_terraform()
     prepare_docker()
     prepare_control_plane()
-    prepare_bootstrap()
     if not args.skip_builds:
         prepare_sdk()
         prepare_frontend()

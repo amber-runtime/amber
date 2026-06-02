@@ -29,8 +29,8 @@ from amber import AgentRuntime, register_agent, step, sleep
 python -m amber.worker your_app.main:agent_runtime
 ```
 
-#### `cli/` → publishes as `amber-runtime` on PyPI
-The user-facing product package. Named `amber-runtime` (not `amber-cli`) because `pip install amber-runtime` is the single install command for users — it delivers the `amber` CLI command and pulls in `amber-sdk` as a dependency automatically. The folder is called `cli/` as a team abstraction; see `cli/README.md` for the full explanation.
+#### `cli/` → local product package name `amber-runtime`
+The user-facing product package currently builds as `amber-runtime`. The final package naming is still a team decision, but the intended product shape is stable: installing the package delivers the `amber` CLI command and pulls in `amber-sdk` so application code can use `from amber import ...`. The folder is called `cli/` as a team abstraction; see `cli/README.md` for the full explanation.
 
 ```
 cli/
@@ -47,7 +47,7 @@ cli/
 
 How customers use it:
 ```bash
-pip install amber-runtime   # installs CLI + SDK in one shot
+pip install amber-runtime   # provisional local/product package name
 amber init
 amber deploy
 ```
@@ -101,7 +101,7 @@ from .user_agents import research_agent, travel_concierge
 
 agent_runtime = AgentRuntime(
     queue_name="agent-runs",
-    worker_concurrency=4,
+    worker_concurrency=8,
     queue_concurrency=None,
 )
 

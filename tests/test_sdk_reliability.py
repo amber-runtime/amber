@@ -834,7 +834,7 @@ class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
         agent_runtime = self.runtime.AgentRuntime()
 
         self.assertEqual(agent_runtime.queue_name, "agent-runs")
-        self.assertEqual(agent_runtime.worker_concurrency, 4)
+        self.assertEqual(agent_runtime.worker_concurrency, 8)
         self.assertIsNone(agent_runtime.queue_concurrency)
         self.assertIsInstance(agent_runtime.agents, self.runtime.AgentService)
 

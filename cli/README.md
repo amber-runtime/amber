@@ -1,9 +1,10 @@
 # Amber CLI
 
-> **Published to PyPI as `amber-runtime`.**
-> This folder contains the CLI code. The package is named `amber-runtime` because
-> `pip install amber-runtime` is the single install command users run to get both
-> the CLI (`amber` command) and the SDK (`from amber import ...`) via its dependency on `amber-sdk`.
+> **Current package name: `amber-runtime`.**
+> This folder contains the CLI code. The team is still validating the final
+> package naming, but local product packaging uses `amber-runtime`: users install
+> the package, run the `amber` command, and write application code with
+> `from amber import ...` via the SDK dependency.
 
 Deploy durable AI agents to customer-owned AWS with one product command:
 
@@ -13,13 +14,15 @@ amber deploy
 
 ## Product Flow
 
-Beta users install the built wheel, initialize a repo, edit `amber.yaml`, and
+Beta users install the built wheel, initialize a repo, review `amber.yaml`, and
 deploy.
 
 ```bash
+pip install amber-runtime
 amber init
 $EDITOR amber.yaml
 amber auth setup
+amber config set openai-api-key
 amber deploy
 amber status
 amber destroy
@@ -36,13 +39,17 @@ name: my-project
 app: my_app.main:app
 worker: my_app.main:agent_runtime
 path_prefix: /api
+environment: dev
 
 # Optional overrides:
 # region: us-east-1
-# environment: dev
 # profile: amber
 # dashboard: true
 ```
+
+`environment: dev` keeps disposable defaults for local demos and testing.
+`environment: prod` uses safer Terraform defaults for buckets, secrets, and RDS,
+but still uses local Terraform state in this beta path.
 
 ## Maintainer Flow
 
@@ -63,12 +70,26 @@ uv run amber deploy
 ```
 
 The packaged assets include Terraform, Docker templates, Docker entrypoints,
-the SDK wheel, the dashboard frontend dist, and the manual IAM helper
-CloudFormation template.
+the SDK wheel, and the dashboard frontend dist.
+
+For a near-product local packaging smoke test:
+
+```bash
+AMBER_RUN_PACKAGE_SMOKE=1 uv run pytest cli/tests/test_local_package_smoke.py
+```
+
+This builds local wheels, installs `amber-runtime` into a fresh virtualenv, runs
+`amber --help`, initializes a temporary customer repo, and confirms deploy
+preflight starts from the installed package. It does not publish anything to
+PyPI.
 
 ## Deploy Pipeline
 
-`amber deploy` runs five steps:
+`amber deploy` runs a preflight before mutating AWS. It validates `amber.yaml`,
+local tools, packaged assets, importability of the configured app/worker targets,
+AWS auth, and the OpenAI API key secret.
+
+After preflight, `amber deploy` runs five steps:
 
 1. **ECR bootstrap** - create the ECR repositories before image push
 2. **Docker** - stage contexts, build images, and push to ECR
@@ -102,10 +123,9 @@ amber deploy --service customer-app
 
 ## AWS Credentials
 
-`amber auth setup` is the friendly AWS setup command. It recommends AWS SSO /
-IAM Identity Center, can guide users through the bundled CloudFormation IAM
-helper when they only have AWS Console admin access, and can verify an existing
-AWS profile.
+`amber auth setup` is the first-time AWS SSO / IAM Identity Center setup
+command. It runs the AWS CLI SSO wizard, signs in, verifies the selected
+identity, and writes the selected `profile` and `region` into `amber.yaml`.
 
 ```bash
 amber auth setup
@@ -160,3 +180,19 @@ amber destroy
 Use `amber destroy --yes` for non-interactive cleanup. The command keeps local
 project config in `amber.yaml`; to fully reset local Amber config after
 destroying cloud resources, run `rm amber.yaml && rm -rf .amber`.
+
+Prod stacks require an explicit testing escape hatch:
+
+```bash
+amber destroy --allow-prod-data-loss
+```
+
+This prevents accidental prod teardown while still allowing deliberate cleanup
+of test prod stacks.
+
+## Terraform State
+
+For this local/beta phase, Terraform state lives in
+`.amber/terraform/terraform.tfstate`. Keep `.amber/` around if you want the same
+machine to run future deploys or destroys. AWS-backed remote state is deferred
+until the production/multi-user deploy story is ready.

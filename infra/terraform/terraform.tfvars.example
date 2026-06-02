@@ -45,6 +45,12 @@ db_username = "dbadmin"
 db_instance_class    = "db.t4g.micro"
 db_allocated_storage = 20
 
-# Worker sizing. Amber CLI can expose this as a config value later; changing it
-# requires an ECS worker redeploy/restart.
-worker_concurrency = 4
+# Worker sizing. Amber CLI can expose these as config values later; changing
+# concurrency requires an ECS worker redeploy/restart.
+worker_concurrency = 8
+
+# Dev/staging defaults cap worker scale-out at 2 tasks. Prod defaults to 4 when
+# worker_max_tasks is left unset.
+# worker_min_tasks     = 1
+# worker_max_tasks     = 2
+# worker_backlog_target = 8
