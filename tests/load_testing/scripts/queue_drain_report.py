@@ -13,7 +13,7 @@ ROOT_DIR = Path(__file__).resolve().parents[3]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from sdk.dashboard import DashboardClient
+from amber.dashboard import DashboardClient
 from tests.load_testing.config import load_load_test_config
 
 WATCH_STATUSES = ("ENQUEUED", "PENDING", "SUCCESS", "ERROR", "CANCELLED")

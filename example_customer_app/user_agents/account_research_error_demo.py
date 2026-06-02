@@ -9,7 +9,7 @@ from typing import Any
 from agents import Agent, function_tool
 from ddgs import DDGS
 
-from sdk import agent_runner, current_workflow_id, logger, register_agent, step
+from amber import agent_runner, current_workflow_id, logger, register_agent, step
 
 BRIEF_CLOCK = datetime(2026, 6, 4, 9, 0, tzinfo=timezone.utc)
 MAX_RESEARCH_STEPS = 5

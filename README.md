@@ -1,96 +1,77 @@
 # Durable Execution Playground
 
-## Testing dashboard backend (without phoenix + using postgres)
-Setup
-  1. Make sure `.env` has:
-     DBOS_SYSTEM_DATABASE_URL=postgresql://...
-     OPENAI_API_KEY=...
+## Repo Structure
 
- Run
- Run the agent (pick any topic)
-  uv run tests/research_agent.py "your topic here"
+This is a monorepo containing two publishable packages (`sdk/` and `cli/`) plus supporting infrastructure and a reference app. The root `pyproject.toml` (`amber-workspace`) is the uv workspace container — it is never published.
 
-  Start the backend
-  uv run uvicorn admin_control_plane.dashboard_backend:app --reload --port 8001
+### Publishable packages
 
-Test
-   Open http://localhost:8001/docs
-   GET /workflows?limit=1   → grab the workflow_uuid
-   GET /workflows/{uuid}    → see the full JOIN with LLM + step data
-
-A development space for building and testing our SDK — a durable execution wrapper over DBOS for agents and agentic workflows.
-
-## Structure
+#### `sdk/` → publishes as `amber-sdk` on PyPI
+The core runtime library. This is what customer agent apps import.
 
 ```
-playground/
-├── sdk/          # the SDK library (edit this to develop)
-│   └── src/sdk/
-│       ├── __init__.py
-│       ├── decorators.py   # workflow, step, sleep, register_agent
-│       ├── runtime.py      # AgentRuntime, Runtime, AgentService, WorkerService
-│       └── dashboard/      # dashboard backend helpers
-├── tests/        # test scripts that use the SDK
-└── deprecated/   # prior reference implementations (Inngest, raw DBOS)
+sdk/
+  amber/               ← Python module (import name is "amber", not "amber-sdk")
+    __init__.py        ← exports AgentRuntime, register_agent, step, sleep, etc.
+    runtime.py         ← AgentRuntime, WorkerService, AgentService
+    decorators.py      ← @register_agent, @step, @workflow, sleep
+    worker.py          ← entrypoint for python -m amber.worker
+    tracing.py
+    dashboard/         ← internal queries used by dashboard backend
+  pyproject.toml       ← name="amber-sdk"
 ```
 
-## Prerequisites
-
-**1. Install uv**
+How customers use it:
+```python
+from amber import AgentRuntime, register_agent, step, sleep
+```
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+python -m amber.worker your_app.main:agent_runtime
 ```
 
-**2a. Create env file**
+#### `cli/` → publishes as `amber-runtime` on PyPI
+The user-facing product package. Named `amber-runtime` (not `amber-cli`) because `pip install amber-runtime` is the single install command for users — it delivers the `amber` CLI command and pulls in `amber-sdk` as a dependency automatically. The folder is called `cli/` as a team abstraction; see `cli/README.md` for the full explanation.
+
+```
+cli/
+  amber_cli/           ← internal CLI module (users never import this)
+    main.py            ← click app entry point
+    commands/
+      init.py          ← amber init
+      deploy.py        ← amber deploy
+      config.py        ← amber config set/list
+      status.py        ← amber status
+    config_loader.py   ← amber.yaml parsing
+  pyproject.toml       ← name="amber-runtime", depends on amber-sdk
+```
+
+How customers use it:
 ```bash
-cp env.example .env
-
+pip install amber-runtime   # installs CLI + SDK in one shot
+amber init
+amber deploy
 ```
 
-**2b. Set your OpenAI key**
-```bash
-OPENAI_API_KEY=sk-...
-```
+### Supporting directories (not published to PyPI)
 
-**3. Install dependencies**
-```bash
-cd playground
+| Directory | Purpose |
+|---|---|
+| `dashboard/` | Split dashboard app with `frontend/` React SPA and `backend/` FastAPI service for observing workflow runs |
+| `infra/` | Terraform, Docker, deploy scripts. Direction: scripts migrate into CLI; `infra/` becomes Terraform-only |
+| `example_customer_app/` | Reference FastAPI app showing how to wire up Amber. Used for integration testing and CLI development. Will move to its own repo as the public quickstart |
+| `tests/` | Integration and reliability tests |
 
-// activate virtual env
-source .venv/bin/activate
+### Key naming facts
 
-uv sync
+- **`amber-runtime` depends on `amber-sdk`.** Publishing order matters: `amber-sdk` first, then `amber-runtime`.
+- **Local dev:** `uv sync` at repo root installs both packages as editable local installs from `sdk/` and `cli/`. No PyPI needed for development.
 
-// To deactivate virtual env
-deactivate
-```
-
-
-
-This installs all dependencies including the `sdk` package in editable mode — changes to `sdk/` are reflected immediately without reinstalling.
-
-## Running Tests
-
-All test scripts are in `tests/`. Run them with `uv run` from the `playground/` root:
-
-```bash
-# Two steps and a durable sleep
-uv run python tests/counter.py
-
-# Test a workflow
-uv run python tests/event_booking.py
-```
-
-> By default, tests use SQLite as the system database (no setup needed). A file named `[app-name].sqlite` is created in the directory you run from.
-
-## Developing the SDK
-
-The SDK lives in `sdk/src/sdk/`. Since it's installed as an editable package, you can edit it and re-run tests without any reinstall step.
+---
 
 **Current public API:**
 
 ```python
-from sdk import AgentRuntime, register_agent, workflow, step, sleep, agent_runner
+from amber import AgentRuntime, register_agent, workflow, step, sleep, agent_runner
 ```
 
 | Function | What it does |
@@ -114,7 +95,7 @@ the same queue configuration.
 
 ```python
 from fastapi import FastAPI
-from sdk import AgentRuntime
+from amber import AgentRuntime
 
 from .user_agents import research_agent, travel_concierge
 
@@ -157,7 +138,7 @@ uv run uvicorn example_customer_app.main:app --port 8003
 Start the queue worker in another terminal:
 
 ```bash
-uv run python -m sdk.worker example_customer_app.main:agent_runtime
+uv run python -m amber.worker example_customer_app.main:agent_runtime
 ```
 
 The API process launches DBOS with user queue listeners disabled. The worker
@@ -197,7 +178,7 @@ For repeatable local queue load testing with k6 and a DBOS drain reporter, see
 The SDK does not create AWS infrastructure. The deployment contract is:
 
 - API service runs the FastAPI app, for example `uvicorn example_customer_app.main:app`.
-- Worker service runs `python -m sdk.worker example_customer_app.main:agent_runtime`.
+- Worker service runs `python -m amber.worker example_customer_app.main:agent_runtime`.
 - API and worker use the same code image/version.
 - API and worker use the same `DBOS_SYSTEM_DATABASE_URL` or `DB_URL`.
 - API and worker import the same registered workflow modules so DBOS application versions match.
@@ -211,7 +192,7 @@ worker logs, completed workflows, and backlog drain time.
 **Writing a new test:**
 
 ```python
-from sdk import Runtime, workflow, step
+from amber import Runtime, workflow, step
 
 @step()
 def call_external_api():

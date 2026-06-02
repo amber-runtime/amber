@@ -24,9 +24,10 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 # Layer 1: dependencies (cached unless pyproject/lock/sdk change)
 COPY pyproject.toml uv.lock ./
 COPY sdk/pyproject.toml sdk/
-COPY sdk/src/        sdk/src/
+COPY cli/pyproject.toml cli/
+COPY sdk/amber/      sdk/amber/
 
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --no-install-project --no-install-package amber-runtime
 
 # Layer 2: application code
 COPY sdk/                  sdk/
@@ -43,4 +44,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
 ENV WORKER_TARGET=example_customer_app.main:agent_runtime
 ENV HEALTH_PORT=8004
 
-CMD ["uv", "run", "python", "run_worker.py"]
+CMD ["/app/.venv/bin/python", "run_worker.py"]

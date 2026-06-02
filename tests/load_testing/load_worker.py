@@ -7,7 +7,7 @@ Run:
 
 import os
 
-from sdk import Runtime, WorkerService
+from amber import Runtime, WorkerService
 from tests.load_testing.config import load_load_test_config
 
 

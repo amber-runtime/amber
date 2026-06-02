@@ -6,7 +6,7 @@ from typing import Any
 
 from agents import Agent, function_tool
 
-from sdk import register_agent, agent_runner, logger, step
+from amber import register_agent, agent_runner, logger, step
 
 SAMPLE_MESSAGE = (
     "Prepare a deep research memo on whether midsize logistics operators should adopt "

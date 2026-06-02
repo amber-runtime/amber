@@ -111,6 +111,8 @@ export function StepRow({
   workflowEnd,
   workflowIsActive,
   visualActiveStepId,
+  downtimeIntervals: _downtimeIntervals,
+  nowMs: _nowMs,
 }: Props) {
   const stepId = step.step_id
   const kind = getStepKind(step)

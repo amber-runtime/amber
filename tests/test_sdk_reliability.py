@@ -30,7 +30,7 @@ def load_module(name: str, relative_path: str):
     return module
 
 
-queries = load_module("queries_under_test", "sdk/src/sdk/dashboard/queries.py")
+queries = load_module("queries_under_test", "sdk/amber/dashboard/queries.py")
 
 
 class QueryTests(unittest.IsolatedAsyncioTestCase):
@@ -504,7 +504,7 @@ class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
         sys.modules.pop("sdk", None)
         sys.modules.pop("sdk.runtime", None)
         sys.modules.pop("sdk.decorators", None)
-        self.decorators = load_module("sdk.decorators", "sdk/src/sdk/decorators.py")
+        self.decorators = load_module("sdk.decorators", "sdk/amber/decorators.py")
         sys.modules["sdk.decorators"] = self.decorators
         self.runtime = importlib.import_module("sdk.runtime")
         self.decorators = importlib.import_module("sdk.decorators")
@@ -875,7 +875,7 @@ class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
 
 class SDKWorkerEntrypointTests(unittest.TestCase):
     def load_worker_entrypoint(self):
-        return load_module("sdk_worker_under_test", "sdk/src/sdk/worker.py")
+        return load_module("sdk_worker_under_test", "sdk/amber/worker.py")
 
     def test_worker_entrypoint_loads_runtime_target_and_runs_worker(self):
         module = types.ModuleType("customer_app.main")
@@ -1083,7 +1083,7 @@ class DemoRegistrationTests(unittest.TestCase):
         self.DBOS = install_decorator_stubs()
         self.decorators = load_module(
             "decorators_demo_under_test",
-            "sdk/src/sdk/decorators.py",
+            "sdk/amber/decorators.py",
         )
         sdk = types.ModuleType("sdk")
         sdk.register_agent = self.decorators.register_agent
@@ -1357,7 +1357,7 @@ class DemoRegistrationTests(unittest.TestCase):
     def test_sdk_current_workflow_id_reads_dbos_context(self):
         decorators = load_module(
             "sdk_decorators_current_workflow_id_under_test",
-            "sdk/src/sdk/decorators.py",
+            "sdk/amber/decorators.py",
         )
         self.DBOS.workflow_id = "sdk-workflow-123"
 
@@ -1562,7 +1562,7 @@ class TracingTests(unittest.TestCase):
             self.DBOS,
             self.add_trace_processor,
         ) = install_tracing_stubs()
-        self.tracing = load_module("tracing_under_test", "sdk/src/sdk/tracing.py")
+        self.tracing = load_module("tracing_under_test", "sdk/amber/tracing.py")
 
     def test_tool_outputs_preserve_falsy_values(self):
         processor = self.tracing.CheckpointTracingProcessor("postgresql://db")
