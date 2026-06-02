@@ -2,7 +2,6 @@ import hashlib
 import json
 import os
 import re
-import signal
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -78,11 +77,13 @@ def _request_hotel_crash_local(workflow_id: str) -> None:
         "crash during hotel quotes\n",
         encoding="utf-8",
     )
+    logger.info("travel crash demo marker armed locally for workflow %s", workflow_id)
 
 
 @step(name="request_hotel_crash_demo")
 def _request_hotel_crash(workflow_id: str | None) -> None:
     if not workflow_id:
+        logger.warning("travel crash demo requested before DBOS workflow_id was available")
         return
 
     db_url = _crash_db_url()
@@ -104,9 +105,34 @@ def _request_hotel_crash(workflow_id: str | None) -> None:
                 INSERT INTO {CRASH_MARKER_TABLE} (workflow_id, crash_key)
                 VALUES (%s, %s)
                 ON CONFLICT (workflow_id, crash_key) DO NOTHING
+                RETURNING requested_at
                 """,
                 (workflow_id, CRASH_KEY_TRAVEL_HOTEL_QUOTES),
             )
+            inserted = cur.fetchone()
+            if inserted is not None:
+                logger.info(
+                    "travel crash demo marker inserted in Postgres for workflow %s",
+                    workflow_id,
+                )
+            else:
+                cur.execute(
+                    f"""
+                    SELECT requested_at, crashed_at
+                    FROM {CRASH_MARKER_TABLE}
+                    WHERE workflow_id = %s
+                      AND crash_key = %s
+                    """,
+                    (workflow_id, CRASH_KEY_TRAVEL_HOTEL_QUOTES),
+                )
+                existing = cur.fetchone()
+                logger.info(
+                    "travel crash demo marker already existed in Postgres for workflow %s "
+                    "(requested_at=%s, crashed_at=%s)",
+                    workflow_id,
+                    existing[0] if existing else None,
+                    existing[1] if existing else None,
+                )
         conn.commit()
     finally:
         conn.close()
@@ -130,11 +156,43 @@ def _should_crash_hotel_quote_from_db(workflow_id: str) -> bool:
                 WHERE workflow_id = %s
                   AND crash_key = %s
                   AND crashed_at IS NULL
-                RETURNING 1
+                RETURNING crashed_at
                 """,
                 (workflow_id, CRASH_KEY_TRAVEL_HOTEL_QUOTES),
             )
-            should_crash = cur.fetchone() is not None
+            updated = cur.fetchone()
+            should_crash = updated is not None
+            if should_crash:
+                logger.info(
+                    "travel crash demo marker consumed in Postgres for workflow %s "
+                    "(crashed_at=%s)",
+                    workflow_id,
+                    updated[0],
+                )
+            else:
+                cur.execute(
+                    f"""
+                    SELECT requested_at, crashed_at
+                    FROM {CRASH_MARKER_TABLE}
+                    WHERE workflow_id = %s
+                      AND crash_key = %s
+                    """,
+                    (workflow_id, CRASH_KEY_TRAVEL_HOTEL_QUOTES),
+                )
+                existing = cur.fetchone()
+                if existing is None:
+                    logger.info(
+                        "travel crash demo marker not found in Postgres for workflow %s",
+                        workflow_id,
+                    )
+                else:
+                    logger.info(
+                        "travel crash demo marker already consumed in Postgres for workflow %s "
+                        "(requested_at=%s, crashed_at=%s)",
+                        workflow_id,
+                        existing[0],
+                        existing[1],
+                    )
         conn.commit()
         return should_crash
     finally:
@@ -144,22 +202,27 @@ def _should_crash_hotel_quote_from_db(workflow_id: str) -> bool:
 def _should_crash_hotel_quote_local(workflow_id: str) -> bool:
     request_path = _crash_request_path(workflow_id)
     if not request_path.exists():
+        logger.info("travel crash demo local marker not found for workflow %s", workflow_id)
         return False
 
     marker_path = _crash_marker_path(workflow_id)
     if marker_path.exists():
+        logger.info("travel crash demo local marker already consumed for workflow %s", workflow_id)
         return False
 
     CRASH_MARKER_DIR.mkdir(parents=True, exist_ok=True)
     marker_path.write_text("crashed once during hotel quotes\n", encoding="utf-8")
     request_path.unlink(missing_ok=True)
+    logger.info("travel crash demo local marker consumed for workflow %s", workflow_id)
     return True
 
 
 def _crash_once_during_hotel(workflow_id: str | None) -> None:
     if not workflow_id:
+        logger.warning("travel crash demo reached hotel quotes without DBOS workflow_id")
         return
 
+    logger.info("travel crash demo checking hotel quote marker for workflow %s", workflow_id)
     should_crash = (
         _should_crash_hotel_quote_from_db(workflow_id)
         if _crash_db_url()
@@ -168,8 +231,11 @@ def _crash_once_during_hotel(workflow_id: str | None) -> None:
     if not should_crash:
         return
 
-    logger.warning("Intentional demo crash during get_hotel_quotes")
-    os.kill(os.getpid(), signal.SIGTERM)
+    logger.warning(
+        "travel crash demo hard-exiting worker during get_hotel_quotes for workflow %s",
+        workflow_id,
+    )
+    os._exit(42)
 
 
 def _strip_hotel_crash_directive(request: str) -> tuple[str, bool]:
@@ -600,6 +666,10 @@ async def _plan_next_action(trip: dict[str, Any], completed: set[str], findings:
 async def travel_concierge(request: str) -> str:
     request, crash_during_hotel = _strip_hotel_crash_directive(request)
     if crash_during_hotel:
+        logger.info(
+            "travel crash demo directive detected for workflow %s",
+            DBOS.workflow_id,
+        )
         _request_hotel_crash(DBOS.workflow_id)
 
     trip = normalize_travel_request(request)
