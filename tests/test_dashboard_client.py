@@ -7,9 +7,9 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SDK_SRC = ROOT / "sdk" / "src"
-if str(SDK_SRC) not in sys.path:
-    sys.path.insert(0, str(SDK_SRC))
+SDK_ROOT = ROOT / "sdk"
+if str(SDK_ROOT) not in sys.path:
+    sys.path.insert(0, str(SDK_ROOT))
 
 from amber.dashboard import DashboardClient  # noqa: E402
 
@@ -143,11 +143,11 @@ class DashboardClientTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             mock.patch(
-                "sdk.dashboard.client.fetch_agent_events_for_dashboard",
+                "amber.dashboard.client.fetch_agent_events_for_dashboard",
                 mock.AsyncMock(return_value=[{"event_type": "tool_call", "step_id": 1}]),
             ) as fetch_events,
             mock.patch(
-                "sdk.dashboard.client.build_step_records",
+                "amber.dashboard.client.build_step_records",
                 return_value=[{"step_id": 1, "event_type": "tool_call"}],
             ) as build_records,
         ):

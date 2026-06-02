@@ -4,7 +4,7 @@ import asyncio
 import unittest
 from unittest.mock import patch
 
-from sdk import queue_metrics
+from amber import queue_metrics
 
 
 class FakeDBOSClient:

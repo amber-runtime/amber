@@ -14,7 +14,7 @@ resolution-markers = [
 members = [
     "amber-runtime",
     "amber-sdk",
-    "playground",
+    "amber-workspace",
 ]
 
 [[package]]
@@ -53,6 +53,45 @@ requires-dist = [
     { name = "dbos", specifier = ">=1.0" },
     { name = "dbos-openai-agents", specifier = ">=0.3.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.12" },
+]
+
+[[package]]
+name = "amber-workspace"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "amber-runtime" },
+    { name = "amber-sdk" },
+    { name = "dbos" },
+    { name = "dbos-openai-agents" },
+    { name = "ddgs" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "jinja2" },
+    { name = "openai" },
+    { name = "openai-agents" },
+    { name = "pydantic" },
+    { name = "python-dotenv" },
+    { name = "requests" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "amber-runtime", editable = "cli" },
+    { name = "amber-sdk", editable = "sdk" },
+    { name = "dbos", specifier = ">=1.0" },
+    { name = "dbos-openai-agents", specifier = ">=0.3.0" },
+    { name = "ddgs", specifier = ">=9.0" },
+    { name = "fastapi", specifier = ">=0.110" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "jinja2", specifier = ">=3.1" },
+    { name = "openai", specifier = ">=1.0" },
+    { name = "openai-agents", specifier = ">=0.17.2" },
+    { name = "pydantic", specifier = ">=2.13.3" },
+    { name = "python-dotenv", specifier = ">=1.2.2" },
+    { name = "requests", specifier = ">=2.31" },
+    { name = "uvicorn", specifier = ">=0.29" },
 ]
 
 [[package]]
@@ -947,45 +986,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/11/cd/14acaf94c6a438cfe72c5ea043bfbc77d7fbb9514ab7796d82f2180d1518/openai_agents-0.17.2.tar.gz", hash = "sha256:5e11414bdd8c20c8e9192d21f78265d30e65992f4537f940309eca9255804449", size = 5403689, upload-time = "2026-05-12T03:14:57.433Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a3/71/5ba9afa4b6a0d250bfdbdd1cf9a5255ae131a7f82915c634ac50c0633c3a/openai_agents-0.17.2-py3-none-any.whl", hash = "sha256:1b3560c1690bcee635a487f77ebfb8b4fb2dd52a653e045a86e51974ab87faf3", size = 838225, upload-time = "2026-05-12T03:14:55.149Z" },
-]
-
-[[package]]
-name = "playground"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "amber-runtime" },
-    { name = "amber-sdk" },
-    { name = "dbos" },
-    { name = "dbos-openai-agents" },
-    { name = "ddgs" },
-    { name = "fastapi" },
-    { name = "httpx" },
-    { name = "jinja2" },
-    { name = "openai" },
-    { name = "openai-agents" },
-    { name = "pydantic" },
-    { name = "python-dotenv" },
-    { name = "requests" },
-    { name = "uvicorn" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "amber-runtime", editable = "cli" },
-    { name = "amber-sdk", editable = "sdk" },
-    { name = "dbos", specifier = ">=1.0" },
-    { name = "dbos-openai-agents", specifier = ">=0.3.0" },
-    { name = "ddgs", specifier = ">=9.0" },
-    { name = "fastapi", specifier = ">=0.110" },
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "jinja2", specifier = ">=3.1" },
-    { name = "openai", specifier = ">=1.0" },
-    { name = "openai-agents", specifier = ">=0.17.2" },
-    { name = "pydantic", specifier = ">=2.13.3" },
-    { name = "python-dotenv", specifier = ">=1.2.2" },
-    { name = "requests", specifier = ">=2.31" },
-    { name = "uvicorn", specifier = ">=0.29" },
 ]
 
 [[package]]

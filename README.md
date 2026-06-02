@@ -71,7 +71,7 @@ amber deploy
 **Current public API:**
 
 ```python
-from sdk import AgentRuntime, register_agent, workflow, step, sleep, agent_runner
+from amber import AgentRuntime, register_agent, workflow, step, sleep, agent_runner
 ```
 
 | Function | What it does |
@@ -95,7 +95,7 @@ the same queue configuration.
 
 ```python
 from fastapi import FastAPI
-from sdk import AgentRuntime
+from amber import AgentRuntime
 
 from .user_agents import research_agent, travel_concierge
 
@@ -138,7 +138,7 @@ uv run uvicorn example_customer_app.main:app --port 8003
 Start the queue worker in another terminal:
 
 ```bash
-uv run python -m sdk.worker example_customer_app.main:agent_runtime
+uv run python -m amber.worker example_customer_app.main:agent_runtime
 ```
 
 The API process launches DBOS with user queue listeners disabled. The worker
@@ -178,7 +178,7 @@ For repeatable local queue load testing with k6 and a DBOS drain reporter, see
 The SDK does not create AWS infrastructure. The deployment contract is:
 
 - API service runs the FastAPI app, for example `uvicorn example_customer_app.main:app`.
-- Worker service runs `python -m sdk.worker example_customer_app.main:agent_runtime`.
+- Worker service runs `python -m amber.worker example_customer_app.main:agent_runtime`.
 - API and worker use the same code image/version.
 - API and worker use the same `DBOS_SYSTEM_DATABASE_URL` or `DB_URL`.
 - API and worker import the same registered workflow modules so DBOS application versions match.
@@ -192,7 +192,7 @@ worker logs, completed workflows, and backlog drain time.
 **Writing a new test:**
 
 ```python
-from sdk import Runtime, workflow, step
+from amber import Runtime, workflow, step
 
 @step()
 def call_external_api():
