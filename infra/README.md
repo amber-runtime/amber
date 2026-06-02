@@ -136,7 +136,17 @@ Terraform creates the AWS secret locations used by ECS tasks:
 For product deploys, use:
 
 ```bash
+amber init
 amber config set openai-api-key
+amber deploy
+```
+
+If services are already running and you rotate the key, restart tasks so ECS
+reads the new SSM value:
+
+```bash
+amber config set openai-api-key
+amber deploy --no-build
 ```
 
 For manual Terraform testing, replace the placeholder SSM parameter after the

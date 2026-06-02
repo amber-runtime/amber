@@ -16,7 +16,12 @@ from rich.console import Console
 
 from amber_cli.assets import asset_path
 from amber_cli.aws_auth import AWSAuthError, is_auth_client_error, print_auth_error, require_identity
-from amber_cli.config_loader import find_config_path, load_config, validate_deploy_config
+from amber_cli.config_loader import (
+    find_config_path,
+    load_config,
+    resolve_secret_path,
+    validate_deploy_config,
+)
 
 console = Console()
 
@@ -57,6 +62,13 @@ def _terraform_output(tf_dir: Path) -> dict:
     return {k: v["value"] for k, v in raw.items()}
 
 
+def _terraform_manages_resource(tf_dir: Path, resource: str) -> bool:
+    result = _run(["terraform", "state", "list"], cwd=tf_dir, check=False)
+    if result.returncode != 0:
+        return False
+    return resource in result.stdout.splitlines()
+
+
 def _ecr_outputs_from_config(cfg, account_id: str, region: str) -> dict[str, str]:
     base = f"{account_id}.dkr.ecr.{region}.amazonaws.com"
     prefix = cfg.prefix
@@ -79,6 +91,35 @@ def _handle_aws_error(exc: ClientError) -> None:
         )
         raise SystemExit(1) from exc
     raise exc
+
+
+def _import_existing_openai_parameter(session, cfg, tf_dir: Path, region: str) -> None:
+    resource = "aws_ssm_parameter.openai_api_key"
+    entry = resolve_secret_path("openai-api-key", cfg)
+    parameter_name = entry["path"]
+
+    ssm = session.client("ssm", region_name=region)
+    try:
+        ssm.get_parameter(Name=parameter_name, WithDecryption=False)
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        if code == "ParameterNotFound":
+            return
+        _handle_aws_error(exc)
+
+    if _terraform_manages_resource(tf_dir, resource):
+        return
+
+    console.print(f"  Importing existing SSM parameter: {parameter_name}")
+    result = _run_with_status(
+        ["terraform", "import", resource, parameter_name],
+        tf_dir,
+        "  Importing existing OpenAI API key parameter...",
+    )
+    if result.returncode != 0:
+        detail = result.stderr or result.stdout
+        console.print(f"[red]Terraform import failed:[/red]\n{detail}")
+        raise SystemExit(1)
 
 
 def _copy_file(src: Path, dst: Path) -> None:
@@ -402,6 +443,7 @@ def deploy(env: str, no_build: bool, no_infra: bool, no_frontend: bool, service:
     if not no_infra:
         console.print("[bold cyan]Step 1/5: Preparing Terraform and ECR[/bold cyan]")
         _terraform_init(tf_dir)
+        _import_existing_openai_parameter(session, cfg, tf_dir, region)
         _terraform_apply(
             tf_dir,
             image_tag,

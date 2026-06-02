@@ -136,7 +136,16 @@ The CLI manages these secrets in AWS:
 | `db` | Secrets Manager | Database connection URL managed by Terraform |
 
 ```bash
+amber init
 amber config set openai-api-key
+amber deploy
+```
+
+After a deployment is already running, rotate or replace the key with:
+
+```bash
+amber config set openai-api-key
+amber deploy --no-build
 amber config list
 ```
 
