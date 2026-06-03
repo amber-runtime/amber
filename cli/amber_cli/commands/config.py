@@ -1,5 +1,7 @@
 """amber config — manage secrets and configuration."""
 
+import json
+import subprocess
 from pathlib import Path
 
 import click
@@ -9,6 +11,12 @@ from amber_cli.aws_auth import AWSAuthError, create_session, print_auth_error, v
 from amber_cli.config_loader import find_config_path, load_config, resolve_secret_path, SECRET_REGISTRY
 
 console = Console()
+
+SERVICE_OUTPUT_KEYS = [
+    "dashboard_api_service_name",
+    "customer_app_service_name",
+    "customer_worker_service_name",
+]
 
 
 def _session(cfg):
@@ -31,17 +39,50 @@ def _get_sm_client(cfg):
     return _session(cfg).client("secretsmanager", region_name=cfg.region)
 
 
-def _deploy_state_exists() -> bool:
+def _run(cmd: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, cwd=cwd, check=check, capture_output=True, text=True)
+
+
+def _terraform_output(tf_dir: Path) -> dict[str, object]:
+    result = _run(["terraform", "output", "-json"], cwd=tf_dir)
+    raw = json.loads(result.stdout)
+    return {k: v["value"] for k, v in raw.items()}
+
+
+def _deployed_ecs_stack_exists(cfg) -> bool:
     config_path = find_config_path()
     if not config_path:
         return False
 
     repo_root = Path(config_path).resolve().parent
-    return (repo_root / ".amber" / "terraform" / "terraform.tfstate").exists()
+    tf_dir = repo_root / ".amber" / "terraform"
+    if not tf_dir.is_dir():
+        return False
+
+    try:
+        tf_out = _terraform_output(tf_dir)
+        cluster = str(tf_out.get("ecs_cluster_name") or "")
+        service_names = [str(tf_out.get(key) or "") for key in SERVICE_OUTPUT_KEYS]
+        if not cluster or any(not name for name in service_names):
+            return False
+
+        ecs = _session(cfg).client("ecs", region_name=cfg.region)
+        response = ecs.describe_services(cluster=cluster, services=service_names)
+    except Exception:
+        return False
+
+    failures = response.get("failures", [])
+    services = response.get("services", [])
+    active_names = {
+        service.get("serviceName")
+        for service in services
+        if service.get("status") == "ACTIVE"
+    }
+    return not failures and set(service_names).issubset(active_names)
 
 
-def _print_secret_next_step() -> None:
-    if _deploy_state_exists():
+def _print_secret_next_step(cfg) -> None:
+    if _deployed_ecs_stack_exists(cfg):
         click.echo("Secret saved. Restart services to pick up the change: amber deploy --no-build")
     else:
         click.echo("Secret saved. Continue the first deploy with: amber deploy")
@@ -149,4 +190,4 @@ def config_set(key: str) -> None:
             click.echo(f"Secret {entry['path']} not found. Create it in AWS first.")
             raise SystemExit(1)
 
-    _print_secret_next_step()
+    _print_secret_next_step(cfg)

@@ -39,7 +39,6 @@ name: {name}
 # queue worker process.
 app: {app_target}
 worker: {worker_target}
-path_prefix: /api
 
 # Optional: infrastructure settings (sensible defaults applied)
 environment: {environment}
@@ -76,6 +75,7 @@ environment: {environment}
     click.echo("  2. Configure AWS access: amber auth setup")
     click.echo("  3. Set your API key:  amber config set openai-api-key")
     click.echo("  4. Deploy:            amber deploy")
+    click.echo("  5. Create admin user: amber admin create-user --email <you@example.com>")
 
 
 def _select_candidate(candidates: list[AppCandidate]) -> AppCandidate | None:

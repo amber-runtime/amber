@@ -10,8 +10,10 @@ import click
 from rich.console import Console
 from rich.table import Table
 
+from amber_cli.admin_access import print_admin_access_status
 from amber_cli.aws_auth import AWSAuthError, print_auth_error, require_identity
 from amber_cli.config_loader import SECRET_REGISTRY, find_config_path, load_config
+from amber_cli.routes import public_urls
 
 console = Console()
 
@@ -103,10 +105,11 @@ def status(env: str) -> None:
 
     console.print("[bold cyan]Health Checks[/bold cyan]")
     base_url = f"https://{cloudfront_domain}" if cloudfront_domain else f"http://{alb_dns}"
+    urls = public_urls(cloudfront_domain) if cloudfront_domain else {}
     checks = [
-        ("Dashboard (SPA)", f"{base_url}/"),
-        ("Dashboard API", f"{base_url}/dashboard/health"),
-        ("Customer API", f"{base_url}{cfg.path_prefix}/health"),
+        ("Customer app", f"{base_url}/health"),
+        ("Amber admin", urls.get("amber_admin", f"{base_url}/admin/")),
+        ("Amber admin API", urls.get("admin_api_health", f"{base_url}/admin/api/health")),
     ]
 
     health_table = Table(show_header=True, header_style="bold")
@@ -148,8 +151,13 @@ def status(env: str) -> None:
         except Exception as exc:
             console.print(f"  {key}: error — {exc}")
 
+    console.print()
+    console.print("[bold cyan]Admin Access[/bold cyan]")
+    print_admin_access_status(console, session, tf_out, region)
+
     if cloudfront_domain:
         console.print()
         console.print("[bold]URLs[/bold]")
-        console.print(f"  Dashboard: https://{cloudfront_domain}/")
-        console.print(f"  API:       https://{cloudfront_domain}{cfg.path_prefix}/")
+        console.print(f"  Customer app:      {urls['customer_app']}")
+        console.print(f"  Amber admin:       {urls['amber_admin']}")
+        console.print(f"  Admin API health:  {urls['admin_api_health']}")

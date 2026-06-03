@@ -1,11 +1,14 @@
 import ast
 import asyncio
 import json
+import os
 import tempfile
 import types
 import unittest
 from pathlib import Path
 from unittest import mock
+
+from fastapi.testclient import TestClient
 
 from example_customer_app.tests.support import (
     ROOT,
@@ -456,3 +459,14 @@ class DemoRegistrationTests(unittest.TestCase):
 
                 hard_exit.assert_called_once_with(42)
                 self.assertTrue((marker_dir / self.DBOS.workflow_id).exists())
+
+
+class CustomerAppRoutingTests(unittest.TestCase):
+    def test_index_defaults_to_root_api_base_path(self):
+        with mock.patch.dict(os.environ, {"PATH_PREFIX": ""}, clear=False):
+            from example_customer_app.main import app
+
+            response = TestClient(app).get("/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('data-api-base-path=""', response.text)

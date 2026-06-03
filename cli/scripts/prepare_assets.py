@@ -71,6 +71,7 @@ dependencies = [
     "psycopg2-binary>=2.9.12",
     "python-dotenv>=1.2.2",
     "pydantic>=2.13.3",
+    "pyjwt[crypto]>=2.10.1",
 ]
 
 [build-system]
@@ -97,7 +98,8 @@ def prepare_frontend() -> None:
     clean_dir(dst)
     frontend = ROOT / "dashboard" / "frontend"
     env = os.environ.copy()
-    env["VITE_API_BASE_URL"] = "/dashboard"
+    env["VITE_BASE_PATH"] = "/admin/"
+    env["VITE_API_BASE_URL"] = "/admin/api"
     run(["npm", "ci"], cwd=frontend, env=env)
     run(["npm", "run", "build"], cwd=frontend, env=env)
     copy_tree(frontend / "dist", dst)

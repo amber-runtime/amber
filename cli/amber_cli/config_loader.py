@@ -15,7 +15,7 @@ class AmberConfig:
     agents: list[str] = field(default_factory=list)
     app: str = ""
     worker: str = ""
-    path_prefix: str = "/api"
+    path_prefix: str = ""
     profile: str = ""
     region: str = "us-east-1"
     environment: str = "dev"
@@ -85,7 +85,7 @@ def load_config(start: str | None = None) -> AmberConfig:
         agents=raw.get("agents", []),
         app=raw.get("app", ""),
         worker=raw.get("worker", ""),
-        path_prefix=raw.get("path_prefix", "/api") or "/api",
+        path_prefix=raw.get("path_prefix", "") or "",
         profile=raw.get("profile", "") or "",
         region=raw.get("region", "us-east-1"),
         environment=raw.get("environment", "dev"),
@@ -103,7 +103,7 @@ def validate_deploy_config(config: AmberConfig) -> list[str]:
         errors.append("app is required, for example: my_app.main:app")
     if not config.worker:
         errors.append("worker is required, for example: my_app.main:agent_runtime")
-    if not config.path_prefix.startswith("/"):
+    if config.path_prefix and not config.path_prefix.startswith("/"):
         errors.append("path_prefix must start with /")
     return errors
 

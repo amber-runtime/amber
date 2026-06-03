@@ -10,13 +10,26 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
 
 async function importApi() {
   vi.resetModules()
-  vi.stubEnv('VITE_API_BASE_URL', '/api')
+  vi.stubEnv('VITE_API_BASE_URL', '/admin/api')
   return import('./api')
 }
 
 describe('dashboard api client', () => {
   beforeEach(() => {
     vi.unstubAllEnvs()
+    const store = new Map<string, string>()
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: vi.fn((key: string) => store.get(key) ?? null),
+        setItem: vi.fn((key: string, value: string) => {
+          store.set(key, value)
+        }),
+        removeItem: vi.fn((key: string) => {
+          store.delete(key)
+        }),
+      },
+    })
     globalThis.fetch = vi.fn()
   })
 
@@ -48,7 +61,7 @@ describe('dashboard api client', () => {
       ],
       hasMore: true,
     })
-    expect(fetch).toHaveBeenCalledWith('/api/workflows?limit=10&offset=20')
+    expect(fetch).toHaveBeenCalledWith('/admin/api/workflows?limit=10&offset=20')
   })
 
   it('maps workflow detail and encodes workflow ids', async () => {
@@ -77,7 +90,7 @@ describe('dashboard api client', () => {
       }),
       steps: [],
     })
-    expect(fetch).toHaveBeenCalledWith('/api/workflows/wf%2Fone%20two')
+    expect(fetch).toHaveBeenCalledWith('/admin/api/workflows/wf%2Fone%20two')
   })
 
   it('maps queued workflow pages and queue-name query params', async () => {
@@ -110,7 +123,7 @@ describe('dashboard api client', () => {
       hasMore: false,
     })
     expect(fetch).toHaveBeenCalledWith(
-      '/api/queued-workflows?limit=5&offset=10&queue_name=priority+queue',
+      '/admin/api/queued-workflows?limit=5&offset=10&queue_name=priority+queue',
     )
   })
 
@@ -123,10 +136,10 @@ describe('dashboard api client', () => {
     await api.resumeWorkflow('wf/one')
     await api.cancelWorkflow('wf/two')
 
-    expect(fetch).toHaveBeenNthCalledWith(1, '/api/workflows/wf%2Fone/resume', {
+    expect(fetch).toHaveBeenNthCalledWith(1, '/admin/api/workflows/wf%2Fone/resume', {
       method: 'POST',
     })
-    expect(fetch).toHaveBeenNthCalledWith(2, '/api/workflows/wf%2Ftwo/cancel', {
+    expect(fetch).toHaveBeenNthCalledWith(2, '/admin/api/workflows/wf%2Ftwo/cancel', {
       method: 'POST',
     })
   })
@@ -138,5 +151,18 @@ describe('dashboard api client', () => {
     )
 
     await expect(api.fetchWorkflows()).rejects.toThrow('HTTP 503: backend unavailable')
+  })
+
+  it('adds bearer tokens to authenticated requests', async () => {
+    window.localStorage.setItem('amber.dashboard.accessToken', 'access-token')
+    window.localStorage.setItem('amber.dashboard.accessTokenExpiresAt', String(Date.now() + 60_000))
+    const api = await importApi()
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ models: {}, synced_at: null }))
+
+    await api.fetchPricing()
+
+    expect(fetch).toHaveBeenCalledWith('/admin/api/pricing', {
+      headers: { Authorization: 'Bearer access-token' },
+    })
   })
 })

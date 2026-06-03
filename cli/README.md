@@ -24,6 +24,7 @@ $EDITOR amber.yaml
 amber auth setup
 amber config set openai-api-key
 amber deploy
+amber admin create-user --email dev@example.com
 amber status
 amber destroy
 ```
@@ -38,13 +39,13 @@ name: my-project
 
 app: my_app.main:app
 worker: my_app.main:agent_runtime
-path_prefix: /api
 environment: dev
 
 # Optional overrides:
 # region: us-east-1
 # profile: amber
 # dashboard: true
+# path_prefix: ""  # optional; current ASGI/Jinja apps own /
 ```
 
 `environment: dev` keeps disposable defaults for local demos and testing.
@@ -115,6 +116,7 @@ amber deploy --service customer-app
 | `amber auth setup` | Configure AWS access for deploys |
 | `amber auth login` | Refresh the saved AWS SSO session |
 | `amber auth check` | Verify the configured AWS profile |
+| `amber admin create-user --email <email>` | Create a Cognito dashboard admin user |
 | `amber deploy` | Build and deploy to AWS |
 | `amber destroy` | Tear down deployed AWS resources |
 | `amber config list` | Show project info and secret status |

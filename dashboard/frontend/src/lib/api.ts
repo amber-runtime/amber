@@ -1,6 +1,19 @@
 import type { WorkflowSummary, WorkflowDetail, WorkflowListPage, WorkflowInfo, QueuedWorkflowSummary, QueuedWorkflowListPage, PricingResponse } from './types'
+import { getAuthorizationHeader } from './auth'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL as string
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/admin/api'
+
+function withAuth(init: RequestInit = {}): RequestInit | undefined {
+  const auth = getAuthorizationHeader()
+  if (Object.keys(auth).length === 0) {
+    return Object.keys(init).length === 0 ? undefined : init
+  }
+  return { ...init, headers: { ...(init.headers as Record<string, string> | undefined), ...auth } }
+}
+
+function request(url: string, init?: RequestInit): Promise<Response> {
+  return init ? fetch(url, init) : fetch(url)
+}
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -31,7 +44,7 @@ export async function fetchWorkflows(
   if (options.limit != null) params.set('limit', String(options.limit))
   if (options.offset != null) params.set('offset', String(options.offset))
   const qs = params.toString()
-  const res = await fetch(`${API_BASE}/workflows${qs ? `?${qs}` : ''}`)
+  const res = await request(`${API_BASE}/workflows${qs ? `?${qs}` : ''}`, withAuth())
   const raw = await handleResponse<{
     workflows: RawWorkflowSummary[]
     has_more: boolean
@@ -43,7 +56,7 @@ export async function fetchWorkflows(
 }
 
 export async function fetchWorkflowDetail(id: string): Promise<WorkflowDetail> {
-  const res = await fetch(`${API_BASE}/workflows/${encodeURIComponent(id)}`)
+  const res = await request(`${API_BASE}/workflows/${encodeURIComponent(id)}`, withAuth())
   const raw = await handleResponse<{
     workflow: RawWorkflowInfo
     steps: WorkflowDetail['steps']
@@ -53,26 +66,26 @@ export async function fetchWorkflowDetail(id: string): Promise<WorkflowDetail> {
 }
 
 export async function resumeWorkflow(workflowId: string): Promise<void> {
-  const res = await fetch(
+  const res = await request(
     `${API_BASE}/workflows/${encodeURIComponent(workflowId)}/resume`,
-    { method: 'POST' },
+    withAuth({ method: 'POST' }),
   )
   await handleResponse<unknown>(res)
 }
 
 export async function deleteWorkflows(workflowIds: string[]): Promise<void> {
-  const res = await fetch(`${API_BASE}/workflows/delete`, {
+  const res = await request(`${API_BASE}/workflows/delete`, withAuth({
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ workflow_ids: workflowIds }),
-  })
+  }))
   await handleResponse<unknown>(res)
 }
 
 export async function cancelWorkflow(workflowId: string): Promise<void> {
-  const res = await fetch(
+  const res = await request(
     `${API_BASE}/workflows/${encodeURIComponent(workflowId)}/cancel`,
-    { method: 'POST' },
+    withAuth({ method: 'POST' }),
   )
   await handleResponse<unknown>(res)
 }
@@ -81,13 +94,13 @@ export async function forkWorkflow(
   workflowId: string,
   startStep: number,
 ): Promise<{ workflowId: string; forkedWorkflowId: string; startStep: number }> {
-  const res = await fetch(
+  const res = await request(
     `${API_BASE}/workflows/${encodeURIComponent(workflowId)}/fork`,
-    {
+    withAuth({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ start_step: startStep }),
-    },
+    }),
   )
   const raw = await handleResponse<{
     workflow_id: string
@@ -102,7 +115,7 @@ export async function forkWorkflow(
 }
 
 export async function fetchPricing(): Promise<PricingResponse> {
-  const res = await fetch(`${API_BASE}/pricing`)
+  const res = await request(`${API_BASE}/pricing`, withAuth())
   return handleResponse<PricingResponse>(res)
 }
 
@@ -114,7 +127,7 @@ export async function fetchQueuedWorkflows(
   if (options.offset != null) params.set('offset', String(options.offset))
   if (options.queueName != null) params.set('queue_name', options.queueName)
   const qs = params.toString()
-  const res = await fetch(`${API_BASE}/queued-workflows${qs ? `?${qs}` : ''}`)
+  const res = await request(`${API_BASE}/queued-workflows${qs ? `?${qs}` : ''}`, withAuth())
   const raw = await handleResponse<{ workflows: RawQueuedWorkflowSummary[]; has_more: boolean }>(res)
   return { workflows: raw.workflows.map(withAttempts), hasMore: raw.has_more }
 }

@@ -14,15 +14,16 @@ frontend. The CLI owns those product deployment steps.
                            |
               +------------+------------+
               |            |            |
-          / (root)   /dashboard/*    /api/*
+          / (root)    /admin/*    /admin/api/*, /api/*
               |            |            |
               v            v            v
-           S3 SPA        ALB ----------+
-         (React)           |     |
-                    +------+     +------+
-                    v                   v
-            dashboard-api:8001   customer-app:8003
-            (FastAPI + DBOS)     (FastAPI + DBOS + OpenAI Agents)
+             ALB        S3 SPA         ALB
+              |        (admin)          |
+              |            +------------+
+              |            |
+              v            v
+       customer-app:8003   dashboard-api:8001
+ (FastAPI + DBOS + OpenAI Agents)  (FastAPI + DBOS)
                     |                   |
                     |        customer-worker:8004
                     |     (DBOS queue consumer)
@@ -42,8 +43,8 @@ frontend. The CLI owns those product deployment steps.
 ```
 
 - **CloudFront** terminates HTTPS and routes by path prefix
-- **ALB** forwards `/dashboard/*` to the dashboard API and `/api/*` to the customer app
-- **S3** serves the React SPA for the root path
+- **ALB** forwards root traffic to the customer app, `/admin/api/*` to the dashboard API, and keeps `/api/*` reserved for customer backend traffic
+- **S3** serves the Amber admin React SPA under `/admin/*`
 - **ECS Fargate** runs the dashboard API, customer app, and customer worker
 - **customer-worker** drains the DBOS `agent-runs` queue
 - **RDS Proxy** pools ECS database connections before RDS

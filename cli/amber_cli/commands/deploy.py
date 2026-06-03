@@ -14,6 +14,7 @@ import click
 from botocore.exceptions import ClientError
 from rich.console import Console
 
+from amber_cli.admin_access import print_admin_access_status
 from amber_cli.assets import asset_path
 from amber_cli.aws_auth import AWSAuthError, is_auth_client_error, print_auth_error
 from amber_cli.config_loader import (
@@ -22,6 +23,7 @@ from amber_cli.config_loader import (
     resolve_secret_path,
 )
 from amber_cli.preflight import run_deploy_preflight
+from amber_cli.routes import public_urls
 
 console = Console()
 
@@ -339,7 +341,7 @@ def _sync_frontend(session, bucket: str, dist_id: str, region: str) -> None:
         for root, _, files in os.walk(dist_dir):
             for fname in files:
                 local_path = Path(root) / fname
-                key = str(local_path.relative_to(dist_dir))
+                key = f"admin/{local_path.relative_to(dist_dir)}"
                 seen.add(key)
                 ext = local_path.suffix.lower()
                 extra_args = {"ContentType": content_types[ext]} if ext in content_types else {}
@@ -356,7 +358,7 @@ def _sync_frontend(session, bucket: str, dist_id: str, region: str) -> None:
                 stale = [
                     {"Key": obj["Key"]}
                     for obj in page.get("Contents", [])
-                    if obj["Key"] not in seen
+                    if obj["Key"].startswith("admin/") and obj["Key"] not in seen
                 ]
                 if stale:
                     s3.delete_objects(Bucket=bucket, Delete={"Objects": stale})
@@ -533,6 +535,9 @@ def deploy(env: str, no_build: bool, no_infra: bool, no_frontend: bool, service:
     cloudfront_domain = tf_out.get("cloudfront_domain", "")
     console.print("[bold green]Deploy complete![/bold green]")
     if cloudfront_domain:
-        console.print(f"  URL:       https://{cloudfront_domain}")
-        console.print(f"  Dashboard: https://{cloudfront_domain}/")
-        console.print(f"  API:       https://{cloudfront_domain}{cfg.path_prefix}/")
+        urls = public_urls(cloudfront_domain)
+        console.print(f"  Customer app:      {urls['customer_app']}")
+        console.print(f"  Amber admin:       {urls['amber_admin']}")
+        console.print(f"  Admin API health:  {urls['admin_api_health']}")
+    console.print()
+    print_admin_access_status(console, session, tf_out, region)

@@ -80,6 +80,7 @@ def test_init_writes_discovered_targets() -> None:
     assert result.exit_code == 0
     assert "Environment: dev" in result.output
     assert "Discovered app:    my_app.main:app" in result.output
+    assert "amber admin create-user --email <you@example.com>" in result.output
     assert "app: my_app.main:app" in config
     assert "worker: my_app.main:agent_runtime" in config
     assert "environment: dev" in config

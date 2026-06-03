@@ -4,12 +4,16 @@ import subprocess
 import runpy
 import sys
 from dataclasses import dataclass
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
 from botocore.exceptions import ClientError
+from click.testing import CliRunner
 
+from amber_cli import cli
 from amber_cli.commands import deploy as deploy_mod
+from amber_cli.routes import public_urls
 
 
 @dataclass
@@ -20,7 +24,8 @@ class FakeConfig:
     region: str = "us-west-2"
     app: str = "my_app.main:app"
     worker: str = "my_app.main:agent_runtime"
-    path_prefix: str = "/api"
+    path_prefix: str = ""
+    profile: str = ""
 
     @property
     def ssm_base(self) -> str:
@@ -54,6 +59,62 @@ class FakeSSM:
                 "GetParameter",
             )
         return {"Parameter": {"Name": Name}}
+
+
+class FakeS3:
+    def __init__(self) -> None:
+        self.uploads: list[str] = []
+        self.deleted: list[str] = []
+
+    def upload_file(self, Filename: str, Bucket: str, Key: str, ExtraArgs: dict | None = None):
+        assert Bucket == "frontend-bucket"
+        self.uploads.append(Key)
+
+    def get_paginator(self, name: str):
+        assert name == "list_objects_v2"
+        return self
+
+    def paginate(self, Bucket: str):
+        assert Bucket == "frontend-bucket"
+        return [{"Contents": [{"Key": "admin/stale.js"}, {"Key": "elsewhere.txt"}]}]
+
+    def delete_objects(self, Bucket: str, Delete: dict):
+        assert Bucket == "frontend-bucket"
+        self.deleted.extend(obj["Key"] for obj in Delete["Objects"])
+
+
+class FakeCloudFront:
+    def __init__(self) -> None:
+        self.invalidations: list[dict] = []
+
+    def create_invalidation(self, **kwargs):
+        self.invalidations.append(kwargs)
+
+
+class FakeFrontendSession:
+    def __init__(self) -> None:
+        self.s3 = FakeS3()
+        self.cloudfront = FakeCloudFront()
+
+    def client(self, service: str, region_name: str):
+        assert region_name == "us-west-2"
+        if service == "s3":
+            return self.s3
+        if service == "cloudfront":
+            return self.cloudfront
+        raise AssertionError(service)
+
+
+class FakeDeploySession:
+    def client(self, service: str, region_name: str):
+        assert region_name == "us-west-2"
+        if service == "cognito-idp":
+            return self
+        raise AssertionError(service)
+
+    def list_users(self, **kwargs):
+        assert kwargs == {"UserPoolId": "us-west-2_pool", "Limit": 1}
+        return {"Users": []}
 
 
 def test_import_existing_openai_parameter_when_unmanaged(monkeypatch, tmp_path: Path) -> None:
@@ -178,6 +239,105 @@ def test_image_tag_falls_back_to_timestamp_without_git(monkeypatch, tmp_path: Pa
     assert deploy_mod._image_tag(tmp_path) == "1717171718"
 
 
+def test_public_urls_use_customer_root_and_admin_namespace() -> None:
+    assert public_urls("d111111abcdef8.cloudfront.net") == {
+        "customer_app": "https://d111111abcdef8.cloudfront.net/",
+        "amber_admin": "https://d111111abcdef8.cloudfront.net/admin/",
+        "admin_api_health": "https://d111111abcdef8.cloudfront.net/admin/api/health",
+    }
+
+
+def test_deploy_summary_guides_admin_creation_when_no_admin_user(monkeypatch) -> None:
+    runner = CliRunner()
+    session = FakeDeploySession()
+
+    monkeypatch.setattr(deploy_mod, "_image_tag", lambda repo_root: "tag")
+    monkeypatch.setattr(deploy_mod, "_ensure_gitignore", lambda repo_root: None)
+    monkeypatch.setattr(deploy_mod, "_sync_terraform", lambda tf_dir: None)
+    monkeypatch.setattr(deploy_mod, "_write_tfvars", lambda tf_dir, cfg, image_tag: None)
+    monkeypatch.setattr(
+        deploy_mod,
+        "run_deploy_preflight",
+        lambda *args, **kwargs: SimpleNamespace(
+            ok=True,
+            errors=[],
+            session=session,
+            identity=SimpleNamespace(account="123456789012"),
+        ),
+    )
+    monkeypatch.setattr(
+        deploy_mod,
+        "_terraform_output",
+        lambda tf_dir: {
+            "ecs_cluster_name": "cluster",
+            "dashboard_api_service_name": "dashboard-api",
+            "customer_app_service_name": "customer-app",
+            "customer_worker_service_name": "customer-worker",
+            "cloudfront_domain": "d111111abcdef8.cloudfront.net",
+            "cognito_user_pool_id": "us-west-2_pool",
+            "cognito_region": "us-west-2",
+        },
+    )
+    monkeypatch.setattr(deploy_mod, "_restart_ecs", lambda *args, **kwargs: None)
+
+    with runner.isolated_filesystem() as tmp:
+        Path(tmp, "amber.yaml").write_text(
+            "\n".join(
+                [
+                    "name: test-project",
+                    "app: my_app.main:app",
+                    "worker: my_app.main:agent_runtime",
+                    "region: us-west-2",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(cli, ["deploy", "--no-build", "--no-infra", "--no-frontend"])
+
+    assert result.exit_code == 0
+    assert "Deploy complete!" in result.output
+    assert "Admin access: no dashboard admin user exists yet." in result.output
+    assert "amber admin create-user --email <you@example.com>" in result.output
+    assert "Cognito will email the temporary password." in result.output
+
+
+def test_sync_frontend_uploads_admin_prefixed_assets(monkeypatch, tmp_path: Path) -> None:
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<html></html>", encoding="utf-8")
+    (dist / "assets" / "app.js").write_text("console.log('ok')", encoding="utf-8")
+
+    def fake_asset_path(*parts: str) -> Path:
+        assert parts == ("frontend", "dist")
+        return dist
+
+    monkeypatch.setattr(deploy_mod, "asset_path", fake_asset_path)
+    monkeypatch.setattr(deploy_mod.time, "time", lambda: 1_717_171_719)
+    session = FakeFrontendSession()
+
+    deploy_mod._sync_frontend(session, "frontend-bucket", "DIST123", "us-west-2")
+
+    assert session.s3.uploads == ["admin/index.html", "admin/assets/app.js"]
+    assert session.s3.deleted == ["admin/stale.js"]
+    assert session.cloudfront.invalidations[0]["DistributionId"] == "DIST123"
+
+
+def test_packaged_terraform_routes_admin_api_and_customer_root() -> None:
+    terraform_dir = Path(__file__).parents[1] / "amber_cli" / "assets" / "terraform"
+    cloudfront = (terraform_dir / "cloudfront.tf").read_text(encoding="utf-8")
+    alb = (terraform_dir / "alb.tf").read_text(encoding="utf-8")
+
+    assert 'path_pattern             = "/admin/api/*"' in cloudfront
+    assert 'path_pattern           = "/admin/*"' in cloudfront
+    assert 'target_origin_id         = "alb"' in cloudfront
+    assert 'target_origin_id       = "s3"' in cloudfront
+    assert 'values = ["/admin/api/*", "/admin/api"]' in alb
+    assert 'values = ["/*"]' in alb
+    assert 'values = ["/dashboard/*", "/dashboard"]' not in alb
+
+
 def test_write_tfvars_uses_dev_disposable_defaults(tmp_path: Path) -> None:
     deploy_mod._write_tfvars(tmp_path, FakeConfig(environment="dev"), "tag")
 
@@ -193,6 +353,7 @@ def test_write_tfvars_uses_dev_disposable_defaults(tmp_path: Path) -> None:
     assert "db_backup_retention_period = 7" in tfvars
     assert 'db_instance_class = "db.t4g.micro"' in tfvars
     assert "db_allocated_storage = 20" in tfvars
+    assert 'path_prefix = ""' in tfvars
 
 
 def test_write_tfvars_uses_prod_hardened_defaults(tmp_path: Path) -> None:
