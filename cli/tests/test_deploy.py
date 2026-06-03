@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import runpy
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -301,4 +302,81 @@ def test_install_app_deps_filters_workspace_and_test_dependencies(tmp_path: Path
     assert namespace["load_dependencies"]() == [
         "fastapi>=0.110",
         "requests[security]>=2.31",
+    ]
+
+
+def test_install_app_deps_installs_requirements_when_pyproject_missing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    script_path = (
+        Path(__file__).parents[1]
+        / "amber_cli"
+        / "asset_sources"
+        / "docker"
+        / "install_app_deps.py"
+    )
+    namespace = runpy.run_path(str(script_path), run_name="install_app_deps_test")
+    calls: list[list[str]] = []
+
+    (tmp_path / "requirements.txt").write_text("fastapi>=0.110\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(namespace["subprocess"], "check_call", calls.append)
+
+    namespace["main"]()
+
+    assert calls == [
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--no-cache-dir",
+            "--find-links=/wheels",
+            "-r",
+            "requirements.txt",
+        ]
+    ]
+
+
+def test_install_app_deps_prefers_pyproject_over_requirements(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    script_path = (
+        Path(__file__).parents[1]
+        / "amber_cli"
+        / "asset_sources"
+        / "docker"
+        / "install_app_deps.py"
+    )
+    namespace = runpy.run_path(str(script_path), run_name="install_app_deps_test")
+    calls: list[list[str]] = []
+
+    (tmp_path / "pyproject.toml").write_text(
+        "\n".join(
+            [
+                "[project]",
+                'dependencies = ["fastapi>=0.110"]',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "requirements.txt").write_text("httpx>=0.27\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(namespace["subprocess"], "check_call", calls.append)
+
+    namespace["main"]()
+
+    assert calls == [
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--no-cache-dir",
+            "--find-links=/wheels",
+            "fastapi>=0.110",
+        ]
     ]

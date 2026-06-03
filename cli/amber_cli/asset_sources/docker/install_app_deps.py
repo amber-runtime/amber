@@ -28,9 +28,8 @@ def load_dependencies() -> list[str]:
     return [dep for dep in deps if dependency_name(dep) not in SKIP_PACKAGES]
 
 
-def main() -> None:
-    deps = load_dependencies()
-    if not deps:
+def install_with_pip(args: list[str]) -> None:
+    if not args:
         return
     subprocess.check_call(
         [
@@ -40,9 +39,18 @@ def main() -> None:
             "install",
             "--no-cache-dir",
             "--find-links=/wheels",
-            *deps,
+            *args,
         ]
     )
+
+
+def main() -> None:
+    if Path("pyproject.toml").exists():
+        install_with_pip(load_dependencies())
+        return
+
+    if Path("requirements.txt").exists():
+        install_with_pip(["-r", "requirements.txt"])
 
 
 if __name__ == "__main__":
