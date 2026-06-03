@@ -85,7 +85,7 @@ describe('StepRow', () => {
     expect(screen.getByText('running…')).toBeInTheDocument()
   })
 
-  it('renders errored rows as a full red gantt track', () => {
+  it('renders errored rows with red outline and bar treatment', () => {
     renderRow({
       step: makeStep({
         status: 'ERROR',
@@ -95,7 +95,9 @@ describe('StepRow', () => {
       workflowIsActive: false,
     })
 
-    expect(screen.getByTestId('step-gantt-track')).toHaveClass('bg-red-500/80')
-    expect(screen.queryByTestId('step-gantt-bar')).not.toBeInTheDocument()
+    expect(screen.getByTestId('step-gantt-track').className).toContain(
+      'shadow-[inset_0_0_0_1.5px_rgba(239,68,68,0.85)]',
+    )
+    expect(screen.getByTestId('step-gantt-bar')).toHaveClass('bg-red-500/80')
   })
 })

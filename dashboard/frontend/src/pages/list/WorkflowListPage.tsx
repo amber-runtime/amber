@@ -103,7 +103,7 @@ const PAGE_SIZE = 50
 
 export function WorkflowListPage() {
   const navigate = useNavigate()
-  const { workflows, loading, loadingMore, hasMore, error, refresh, loadMore } = useWorkflows()
+  const { workflows = [], loading, loadingMore, hasMore, error, refresh, loadMore } = useWorkflows()
   const [filter, setFilter] = useState<Filter>('all')
   const [dateFilter, setDateFilter] = useState<DateFilter>('all')
   const [searchQuery, setSearchQuery] = useState('')
