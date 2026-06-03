@@ -115,6 +115,13 @@ amber deploy
 and pushes images, applies infrastructure, syncs frontend assets, and prints the
 deployed URLs.
 
+For the current local/beta CLI path, Terraform state remains local at
+`.amber/terraform/terraform.tfstate`. AWS-backed remote state is intentionally
+deferred until the production/multi-user story is ready.
+
+`environment: prod` makes the CLI generate safer Terraform variables for S3,
+Secrets Manager, and RDS. It does not enable remote Terraform state yet.
+
 Terraform by itself creates infrastructure only. It does not:
 
 - build Docker images

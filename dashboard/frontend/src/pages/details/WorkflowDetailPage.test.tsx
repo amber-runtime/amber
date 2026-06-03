@@ -187,7 +187,7 @@ describe('WorkflowDetailPage', () => {
     renderDetailPage()
 
     const summary = screen.getByRole('button', { name: /step errors: 1/i })
-    expect(summary).toHaveClass('text-red-200')
+    expect(summary.parentElement).toHaveClass('text-red-200')
 
     await userEvent.click(summary)
     await userEvent.click(screen.getByRole('button', { name: /step #2/i }))

@@ -45,8 +45,8 @@ module "rds" {
   password = local.db_password
   port     = 5432
 
-  # Networking — multi-AZ = false for dev (saves ~2x cost)
-  multi_az               = false
+  # Networking
+  multi_az               = var.db_multi_az
   db_subnet_group_name   = module.vpc.database_subnet_group
   vpc_security_group_ids = [aws_security_group.rds.id]
   publicly_accessible    = false
@@ -56,10 +56,10 @@ module "rds" {
   manage_master_user_password = false # use our generated password instead
   maintenance_window          = "sun:05:00-sun:06:00"
   backup_window               = "03:00-04:00"
-  backup_retention_period     = 7
-  delete_automated_backups    = true
-  deletion_protection         = false # true for production!
-  skip_final_snapshot         = true  # false for production!
+  backup_retention_period     = var.db_backup_retention_period
+  delete_automated_backups    = var.db_delete_automated_backups
+  deletion_protection         = var.db_deletion_protection
+  skip_final_snapshot         = var.db_skip_final_snapshot
   copy_tags_to_snapshot       = true
 
   # Parameters

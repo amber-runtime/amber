@@ -52,9 +52,12 @@ describe('StepList downtime row anchoring', () => {
       ],
     })
 
-    expect(screen.getAllByTestId('step-gantt-bar')).toHaveLength(2)
+    const bars = screen.getAllByTestId('step-gantt-bar')
+    expect(bars).toHaveLength(2)
+    expect(bars[0]).toHaveStyle({ left: '0%', width: '20%' })
+    expect(bars[1]).toHaveStyle({ left: '40%', width: '40%' })
     expect(screen.queryByTestId('downtime-gantt-bar')).not.toBeInTheDocument()
-    expect(screen.getByText('running…')).toBeInTheDocument()
+    expect(screen.queryByText('running…')).not.toBeInTheDocument()
   })
 
   it('does not render refresh downtime overlays when newer rows exist', () => {
@@ -132,8 +135,8 @@ describe('StepList downtime row anchoring', () => {
     })
 
     const bars = screen.getAllByTestId('step-gantt-bar')
-    expect(bars[0]).toHaveStyle({ left: '0%', width: '33.33333333333333%' })
-    expect(bars[1]).toHaveStyle({ left: '66.66666666666666%', width: '33.33333333333333%' })
+    expect(bars[0]).toHaveStyle({ left: '0%', width: '20%' })
+    expect(bars[1]).toHaveStyle({ left: '40%', width: '60%' })
     expect(screen.getByText('running…')).toBeInTheDocument()
   })
 })

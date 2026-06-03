@@ -47,7 +47,12 @@ def _terraform_destroy(tf_dir: Path) -> None:
 @click.command()
 @click.option("--env", default="", help="Deployment environment override")
 @click.option("--yes", is_flag=True, help="Skip confirmation")
-def destroy(env: str, yes: bool) -> None:
+@click.option(
+    "--allow-prod-data-loss",
+    is_flag=True,
+    help="Allow destroying a prod stack for testing/cleanup.",
+)
+def destroy(env: str, yes: bool, allow_prod_data_loss: bool) -> None:
     """Destroy AWS resources created by amber deploy."""
     cfg = load_config()
     if env:
@@ -85,11 +90,26 @@ def destroy(env: str, yes: bool) -> None:
     console.print(f"  Terraform: {tf_dir}")
     console.print()
 
+    if cfg.environment == "prod" and not allow_prod_data_loss:
+        console.print("[red]Refusing to destroy prod without --allow-prod-data-loss.[/red]")
+        console.print(
+            "Prod uses safer defaults for buckets, secrets, and database deletion. "
+            "For test cleanup, rerun with `amber destroy --allow-prod-data-loss`."
+        )
+        raise SystemExit(1)
+
     if not yes:
-        confirmed = click.confirm("Destroy these AWS resources?", default=False)
-        if not confirmed:
-            console.print("[yellow]Destroy cancelled.[/yellow]")
-            raise SystemExit(1)
+        if cfg.environment == "prod":
+            expected = f"{cfg.name}-{cfg.environment}"
+            typed = click.prompt(f"Type {expected} to destroy this prod stack", default="")
+            if typed != expected:
+                console.print("[yellow]Destroy cancelled.[/yellow]")
+                raise SystemExit(1)
+        else:
+            confirmed = click.confirm("Destroy these AWS resources?", default=False)
+            if not confirmed:
+                console.print("[yellow]Destroy cancelled.[/yellow]")
+                raise SystemExit(1)
 
     _terraform_init(tf_dir)
     _terraform_destroy(tf_dir)

@@ -14,8 +14,9 @@ describe('StepErrorSummaryCard', () => {
     )
 
     const summary = screen.getByRole('button', { name: /step errors: 0/i })
+    const card = summary.parentElement
     expect(summary).toBeDisabled()
-    expect(summary).toHaveClass('text-slate-500')
+    expect(card).toHaveClass('text-slate-500')
   })
 
   it('turns red, expands, and selects errored steps newest-first', () => {
@@ -33,8 +34,9 @@ describe('StepErrorSummaryCard', () => {
     )
 
     const summary = screen.getByRole('button', { name: /step errors: 2/i })
+    const card = summary.parentElement
     expect(summary).not.toBeDisabled()
-    expect(summary).toHaveClass('text-red-200')
+    expect(card).toHaveClass('text-red-200')
 
     fireEvent.click(summary)
 

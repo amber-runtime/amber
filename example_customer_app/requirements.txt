@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+jinja2
+python-multipart
+python-dotenv
+ddgs
+openai
+openai-agents
+requests
+beautifulsoup4
+httpx

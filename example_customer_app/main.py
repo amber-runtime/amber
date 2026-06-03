@@ -231,7 +231,7 @@ def _arm_account_research_ratelimit_input(run_input: str) -> str:
 
 
 agent_runtime = AgentRuntime(
-    worker_concurrency=int(os.environ.get("WORKER_CONCURRENCY", "4"))
+    worker_concurrency=int(os.environ.get("WORKER_CONCURRENCY", "8"))
 )
 
 

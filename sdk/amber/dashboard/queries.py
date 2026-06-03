@@ -229,7 +229,7 @@ def build_step_records(
         event_type = "step"
         if llm:
             event_type = "llm_response"
-        elif tool or fn_name in tool_names_seen:
+        elif tool:
             event_type = "tool_call"
 
         records.append(

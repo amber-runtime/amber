@@ -15,13 +15,13 @@ from botocore.exceptions import ClientError
 from rich.console import Console
 
 from amber_cli.assets import asset_path
-from amber_cli.aws_auth import AWSAuthError, is_auth_client_error, print_auth_error, require_identity
+from amber_cli.aws_auth import AWSAuthError, is_auth_client_error, print_auth_error
 from amber_cli.config_loader import (
     find_config_path,
     load_config,
     resolve_secret_path,
-    validate_deploy_config,
 )
+from amber_cli.preflight import run_deploy_preflight
 
 console = Console()
 
@@ -86,8 +86,8 @@ def _handle_aws_error(exc: ClientError) -> None:
         raise SystemExit(1) from exc
     if "AccessDenied" in code or "Unauthorized" in code:
         console.print(
-            "[red]AWS denied a deploy action. Re-launch or update the manual Amber IAM helper stack "
-            "so the deploy identity has the required permissions.[/red]"
+            "[red]AWS denied a deploy action. Confirm the AWS profile in amber.yaml has "
+            "the permissions needed to create and update Amber resources.[/red]"
         )
         raise SystemExit(1) from exc
     raise exc
@@ -152,6 +152,7 @@ def _sync_terraform(tf_dir: Path) -> None:
 
 def _write_tfvars(tf_dir: Path, cfg, image_tag: str) -> None:
     project_name = cfg.project_prefix or cfg.name
+    prod = cfg.environment == "prod"
     content = "\n".join(
         [
             f'project_name = "{project_name}"',
@@ -161,6 +162,15 @@ def _write_tfvars(tf_dir: Path, cfg, image_tag: str) -> None:
             f'asgi_app = "{cfg.app}"',
             f'worker_target = "{cfg.worker}"',
             f'path_prefix = "{cfg.path_prefix}"',
+            f"frontend_bucket_force_destroy = {str(not prod).lower()}",
+            f"secrets_force_destroy = {str(not prod).lower()}",
+            f"db_multi_az = {str(prod).lower()}",
+            f"db_deletion_protection = {str(prod).lower()}",
+            f"db_skip_final_snapshot = {str(not prod).lower()}",
+            f"db_delete_automated_backups = {str(not prod).lower()}",
+            f"db_backup_retention_period = {30 if prod else 7}",
+            f'db_instance_class = "{"db.t4g.small" if prod else "db.t4g.micro"}"',
+            f"db_allocated_storage = {100 if prod else 20}",
             "",
         ]
     )
@@ -208,6 +218,7 @@ def _assemble_customer_context(repo_root: Path, build_root: Path, service: str, 
     _copy_file(docker_assets / ".dockerignore", context / ".dockerignore")
     entrypoint = "strip_prefix.py" if service == "customer-app" else "run_worker.py"
     _copy_file(docker_assets / entrypoint, context / entrypoint)
+    _copy_file(docker_assets / "install_app_deps.py", context / "install_app_deps.py")
     return context
 
 
@@ -378,10 +389,11 @@ def _restart_ecs(session, cluster: str, services: list[str], region: str) -> Non
 
 
 def _image_tag(repo_root: Path) -> str:
+    timestamp = str(int(time.time()))
     result = _run(["git", "rev-parse", "--short", "HEAD"], cwd=repo_root, check=False)
     if result.returncode == 0 and result.stdout.strip():
-        return result.stdout.strip()
-    return str(int(time.time()))
+        return f"{result.stdout.strip()}-{timestamp}"
+    return timestamp
 
 
 @click.command()
@@ -393,12 +405,6 @@ def _image_tag(repo_root: Path) -> str:
 def deploy(env: str, no_build: bool, no_infra: bool, no_frontend: bool, service: tuple[str, ...]) -> None:
     """Build and deploy your agents to AWS."""
     cfg = load_config()
-    errors = validate_deploy_config(cfg)
-    if errors:
-        console.print("[red]Invalid amber.yaml:[/red]")
-        for error in errors:
-            console.print(f"  - {error}")
-        raise SystemExit(1)
     if env:
         cfg.environment = env
 
@@ -416,12 +422,23 @@ def deploy(env: str, no_build: bool, no_infra: bool, no_frontend: bool, service:
     os.environ["AWS_REGION"] = region
     os.environ["AWS_DEFAULT_REGION"] = region
 
-    try:
-        session, identity = require_identity(cfg.profile, region)
-    except AWSAuthError as exc:
-        print_auth_error(console, exc, "amber deploy")
-        raise SystemExit(1) from exc
+    console.print("[bold cyan]Preflight: checking deploy prerequisites[/bold cyan]")
+    preflight = run_deploy_preflight(
+        cfg,
+        repo_root,
+        require_build=not no_build,
+        require_frontend=not no_frontend,
+    )
+    if not preflight.ok:
+        console.print("[red]Amber deploy cannot continue:[/red]")
+        for error in preflight.errors:
+            console.print(f"  - {error}")
+        raise SystemExit(1)
+    session = preflight.session
+    identity = preflight.identity
     account_id = identity.account
+    console.print("[green]  Preflight passed[/green]")
+    console.print()
 
     _ensure_gitignore(repo_root)
     _sync_terraform(tf_dir)

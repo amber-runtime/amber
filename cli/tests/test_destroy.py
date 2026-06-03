@@ -17,7 +17,7 @@ class FakeIdentity:
     user_id: str = "test"
 
 
-def write_config(path: Path) -> None:
+def write_config(path: Path, *, environment: str = "dev") -> None:
     path.write_text(
         "\n".join(
             [
@@ -25,7 +25,7 @@ def write_config(path: Path) -> None:
                 "app: my_app.main:app",
                 "worker: my_app.main:agent_runtime",
                 "region: us-west-2",
-                "environment: dev",
+                f"environment: {environment}",
                 "profile: amber-dev",
                 "",
             ]
@@ -145,3 +145,59 @@ def test_destroy_env_override_changes_display(monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert "Amber destroy - test-project (staging)" in result.output
+
+
+def test_destroy_refuses_prod_without_allow_prod_data_loss(monkeypatch) -> None:
+    runner = CliRunner()
+
+    def fake_require_identity(profile: str, region: str):
+        return object(), FakeIdentity()
+
+    def fake_run(cmd, cwd=None, check=False, capture_output=True, text=True):
+        raise AssertionError("terraform should not run")
+
+    monkeypatch.setattr(destroy_mod, "require_identity", fake_require_identity)
+    monkeypatch.setattr(destroy_mod.subprocess, "run", fake_run)
+
+    with runner.isolated_filesystem() as tmp:
+        root = Path(tmp)
+        write_config(root / "amber.yaml", environment="prod")
+        write_state(root)
+
+        result = runner.invoke(cli, ["destroy", "--yes"])
+
+    assert result.exit_code == 1
+    assert "Refusing to destroy prod without --allow-prod-data-loss." in result.output
+
+
+def test_destroy_prod_with_allow_prod_data_loss_requires_typed_confirmation(monkeypatch) -> None:
+    runner = CliRunner()
+    calls: list[tuple[list[str], Path]] = []
+
+    def fake_require_identity(profile: str, region: str):
+        return object(), FakeIdentity()
+
+    def fake_run(cmd, cwd=None, check=False, capture_output=True, text=True):
+        calls.append((cmd, cwd))
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(destroy_mod, "require_identity", fake_require_identity)
+    monkeypatch.setattr(destroy_mod.subprocess, "run", fake_run)
+
+    with runner.isolated_filesystem() as tmp:
+        root = Path(tmp)
+        write_config(root / "amber.yaml", environment="prod")
+        tf_dir = write_state(root)
+
+        result = runner.invoke(
+            cli,
+            ["destroy", "--allow-prod-data-loss"],
+            input="test-project-prod\n",
+        )
+
+    assert result.exit_code == 0
+    assert "Type test-project-prod to destroy this prod stack" in result.output
+    assert calls == [
+        (["terraform", "init"], tf_dir.resolve()),
+        (["terraform", "destroy", "-auto-approve"], tf_dir.resolve()),
+    ]

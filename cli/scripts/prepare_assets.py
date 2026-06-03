@@ -51,7 +51,14 @@ def prepare_docker() -> None:
 def prepare_control_plane() -> None:
     dst = ASSETS / "control_plane"
     clean_dir(dst)
-    copy_tree(ROOT / "admin_control_plane", dst / "admin_control_plane", shutil.ignore_patterns("__pycache__", "*.pyc"))
+    dashboard_pkg = dst / "dashboard"
+    dashboard_pkg.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ROOT / "dashboard" / "__init__.py", dashboard_pkg / "__init__.py")
+    copy_tree(
+        ROOT / "dashboard" / "backend",
+        dashboard_pkg / "backend",
+        shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
     (dst / "pyproject.toml").write_text(
         """[project]
 name = "amber-control-plane"
@@ -72,7 +79,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["admin_control_plane*"]
+include = ["dashboard*"]
 """,
         encoding="utf-8",
     )
@@ -88,18 +95,12 @@ def prepare_sdk() -> None:
 def prepare_frontend() -> None:
     dst = ASSETS / "frontend" / "dist"
     clean_dir(dst)
+    frontend = ROOT / "dashboard" / "frontend"
     env = os.environ.copy()
     env["VITE_API_BASE_URL"] = "/dashboard"
-    run(["npm", "ci"], cwd=ROOT / "dashboard", env=env)
-    run(["npm", "run", "build"], cwd=ROOT / "dashboard", env=env)
-    copy_tree(ROOT / "dashboard" / "dist", dst)
-
-
-def prepare_bootstrap() -> None:
-    dst = ASSETS / "bootstrap"
-    clean_dir(dst)
-    src = CLI_ROOT / "amber_cli" / "asset_sources" / "bootstrap" / "amber-bootstrap.yaml"
-    shutil.copy2(src, dst / src.name)
+    run(["npm", "ci"], cwd=frontend, env=env)
+    run(["npm", "run", "build"], cwd=frontend, env=env)
+    copy_tree(frontend / "dist", dst)
 
 
 def main() -> None:
@@ -111,7 +112,6 @@ def main() -> None:
     prepare_terraform()
     prepare_docker()
     prepare_control_plane()
-    prepare_bootstrap()
     if not args.skip_builds:
         prepare_sdk()
         prepare_frontend()

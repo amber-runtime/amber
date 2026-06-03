@@ -1,10 +1,12 @@
 """amber config — manage secrets and configuration."""
 
+from pathlib import Path
+
 import click
 from rich.console import Console
 
 from amber_cli.aws_auth import AWSAuthError, create_session, print_auth_error, verify_identity
-from amber_cli.config_loader import load_config, resolve_secret_path, SECRET_REGISTRY
+from amber_cli.config_loader import find_config_path, load_config, resolve_secret_path, SECRET_REGISTRY
 
 console = Console()
 
@@ -27,6 +29,22 @@ def _get_ssm_client(cfg):
 
 def _get_sm_client(cfg):
     return _session(cfg).client("secretsmanager", region_name=cfg.region)
+
+
+def _deploy_state_exists() -> bool:
+    config_path = find_config_path()
+    if not config_path:
+        return False
+
+    repo_root = Path(config_path).resolve().parent
+    return (repo_root / ".amber" / "terraform" / "terraform.tfstate").exists()
+
+
+def _print_secret_next_step() -> None:
+    if _deploy_state_exists():
+        click.echo("Secret saved. Restart services to pick up the change: amber deploy --no-build")
+    else:
+        click.echo("Secret saved. Continue the first deploy with: amber deploy")
 
 
 @click.group()
@@ -131,4 +149,4 @@ def config_set(key: str) -> None:
             click.echo(f"Secret {entry['path']} not found. Create it in AWS first.")
             raise SystemExit(1)
 
-    click.echo("Restart services to pick up the change: amber deploy --no-build")
+    _print_secret_next_step()
