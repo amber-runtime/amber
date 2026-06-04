@@ -42,10 +42,12 @@ resource "aws_cognito_user_pool_client" "dashboard_spa" {
   callback_urls = [
     "https://${aws_cloudfront_distribution.main.domain_name}/admin/",
     "http://localhost:5173/",
+    "http://localhost:8765/callback",
   ]
   logout_urls = [
     "https://${aws_cloudfront_distribution.main.domain_name}/admin/",
     "http://localhost:5173/",
+    "http://localhost:8765/callback",
   ]
   explicit_auth_flows = [
     "ALLOW_REFRESH_TOKEN_AUTH",

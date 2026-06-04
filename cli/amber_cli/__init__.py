@@ -2,7 +2,7 @@
 
 import click
 
-from amber_cli.commands import admin, auth, config, deploy, destroy, init, status
+from amber_cli.commands import admin, auth, config, deploy, destroy, init, status, workflows
 
 
 @click.group()
@@ -19,3 +19,4 @@ cli.add_command(deploy.deploy)
 cli.add_command(destroy.destroy)
 cli.add_command(config.config)
 cli.add_command(status.status)
+cli.add_command(workflows.workflows)

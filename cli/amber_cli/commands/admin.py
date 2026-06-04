@@ -10,6 +10,7 @@ import click
 from botocore.exceptions import ClientError
 from rich.console import Console
 
+from amber_cli import dashboard_api, dashboard_auth
 from amber_cli.aws_auth import AWSAuthError, print_auth_error, require_identity
 from amber_cli.config_loader import find_config_path, load_config
 
@@ -26,9 +27,47 @@ def _terraform_output(tf_dir: Path) -> dict[str, object]:
     return {k: v["value"] for k, v in raw.items()}
 
 
+def _require_config_path() -> str:
+    config_path = find_config_path()
+    if not load_config().name or not config_path:
+        click.echo("No amber.yaml found. Run 'amber init' first.")
+        raise SystemExit(1)
+    return config_path
+
+
 @click.group()
 def admin() -> None:
     """Manage Amber dashboard admin users."""
+
+
+@admin.command("login")
+@click.option("--no-browser", is_flag=True, help="Print the login URL instead of opening a browser")
+def login(no_browser: bool) -> None:
+    """Sign in to the Amber dashboard for CLI workflow commands."""
+    config_path = _require_config_path()
+    try:
+        api_base = dashboard_api.resolve_api_base(config_path)
+    except dashboard_api.DashboardAPIError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1) from exc
+
+    console.print("Opening browser for Cognito login...")
+    try:
+        dashboard_auth.login(api_base, open_browser=not no_browser)
+    except dashboard_auth.DashboardAuthError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1) from exc
+    console.print("[green]Logged in.[/green] Try: amber workflows list")
+
+
+@admin.command("logout")
+def logout() -> None:
+    """Clear the cached CLI dashboard session."""
+    removed = dashboard_auth.clear_session()
+    if removed:
+        console.print("[green]Logged out.[/green] Cleared cached dashboard session.")
+    else:
+        console.print("No cached dashboard session found.")
 
 
 @admin.command("create-user")

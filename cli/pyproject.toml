@@ -9,6 +9,7 @@ description = "Amber Runtime - durable AI agent execution"
 requires-python = ">=3.11"
 dependencies = [
     "amber-sdk>=0.1.0",
+    "certifi>=2023.7.22",
     "click>=8.1",
     "rich>=13.0",
     "boto3>=1.34",

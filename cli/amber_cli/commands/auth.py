@@ -86,6 +86,7 @@ def _save_verified_profile(profile: str, region: str) -> None:
     console.print(f"  Profile: {profile}")
     console.print()
     console.print("Next:")
+    console.print("  amber config set openai-api-key   # if not set yet")
     console.print("  amber deploy")
 
 
