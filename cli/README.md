@@ -83,6 +83,20 @@ app, so you still write routes at the root (`/runs`, `/health`). Have the React
 client call the API at `/api/...` — the build sets `VITE_BASE_PATH=/` and
 `VITE_API_BASE_URL=/api`.
 
+Route ownership stays separate from the Amber admin surface:
+
+- `/` serves the customer app, or the customer React SPA when `frontend:` is set.
+- `/api/*` is the developer app's public API surface behind CloudFront/ALB; the
+  ALB blocks direct origin access with Amber's CloudFront origin verification
+  header, but these routes are still reachable through the app's CloudFront URL.
+- `/admin/*` serves the Amber admin React frontend.
+- `/admin/api/*` serves the Amber dashboard backend, which enforces Cognito
+  bearer auth before returning protected dashboard data.
+
+Amber does not automatically wrap the developer app's `/api` routes in dashboard
+Cognito auth, because many customer apps need public endpoints. If your `/api`
+routes expose private data or mutations, enforce auth inside your app.
+
 ## Maintainer Flow
 
 When changing the CLI package or bundled deploy assets, refresh assets before

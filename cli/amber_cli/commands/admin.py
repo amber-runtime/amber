@@ -37,7 +37,7 @@ def _require_config_path() -> str:
 
 @click.group()
 def admin() -> None:
-    """Manage Amber dashboard admin users."""
+    """Manage Cognito users for Amber dashboard access."""
 
 
 @admin.command("login")

@@ -23,6 +23,10 @@ SKIP_DIRS = {
     "node_modules",
 }
 
+INTERNAL_FRONTEND_DIRS = {
+    ("dashboard", "frontend"),
+}
+
 
 @dataclass(frozen=True)
 class AppCandidate:
@@ -61,6 +65,8 @@ def discover_frontend_candidates(root: Path) -> list[FrontendCandidate]:
     """Find React SPA directories (package.json declaring a react dependency)."""
     candidates: list[FrontendCandidate] = []
     for path in _iter_package_jsons(root):
+        if _is_internal_frontend_package(root, path):
+            continue
         found = _inspect_package_json(path)
         if found is None:
             continue
@@ -161,6 +167,11 @@ def _iter_package_jsons(root: Path) -> list[Path]:
             continue
         paths.append(path)
     return sorted(paths)
+
+
+def _is_internal_frontend_package(root: Path, path: Path) -> bool:
+    rel_parent = path.parent.relative_to(root).parts
+    return rel_parent in INTERNAL_FRONTEND_DIRS
 
 
 def _inspect_package_json(path: Path) -> tuple[str, str] | None:

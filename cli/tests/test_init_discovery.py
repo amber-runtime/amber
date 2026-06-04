@@ -186,6 +186,15 @@ def test_discovery_ignores_non_react_package_json(tmp_path: Path) -> None:
     assert discover_frontend_candidates(tmp_path) == []
 
 
+def test_discovery_ignores_amber_dashboard_react_frontend(tmp_path: Path) -> None:
+    write_package_json(
+        tmp_path / "dashboard" / "frontend" / "package.json",
+        deps={"react": "^18"},
+    )
+
+    assert discover_frontend_candidates(tmp_path) == []
+
+
 def test_discovery_skips_node_modules(tmp_path: Path) -> None:
     write_package_json(
         tmp_path / "frontend" / "node_modules" / "react" / "package.json",
@@ -226,6 +235,27 @@ def test_init_omits_frontend_block_without_react() -> None:
         config = (root / "amber.yaml").read_text(encoding="utf-8")
 
     assert result.exit_code == 0
+    assert "frontend:" not in config
+    assert "path_prefix: /api" not in config
+
+
+def test_init_ignores_dashboard_frontend_when_customer_has_backend_only() -> None:
+    runner = CliRunner()
+
+    with runner.isolated_filesystem() as tmp:
+        root = Path(tmp)
+        write_customer_app(root / "my_app" / "main.py")
+        write_package_json(
+            root / "dashboard" / "frontend" / "package.json",
+            deps={"react": "^18"},
+        )
+
+        result = runner.invoke(cli, ["init", "--name", "demo"], input="\n")
+        config = (root / "amber.yaml").read_text(encoding="utf-8")
+
+    assert result.exit_code == 0
+    assert "Discovered app:    my_app.main:app" in result.output
+    assert "Discovered frontend:" not in result.output
     assert "frontend:" not in config
     assert "path_prefix: /api" not in config
 
