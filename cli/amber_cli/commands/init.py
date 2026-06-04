@@ -13,6 +13,15 @@ from amber_cli.discovery import (
     discover_frontend_candidates,
 )
 
+AMBER_INIT_BANNER = """    _    __  __ ____  _____ ____
+   / \\  |  \\/  | __ )| ____|  _ \\
+  / _ \\ | |\\/| |  _ \\|  _| | |_) |
+ / ___ \\| |  | | |_) | |___|  _ <
+/_/   \\_\\_|  |_|____/|_____|_| \\_\\"""
+
+AMBER_ORANGE_ANSI = "\033[38;5;214m"
+ANSI_RESET = "\033[0m"
+
 
 @click.command()
 @click.option("--name", help="Project name (default: directory name)")
@@ -34,10 +43,11 @@ def init(name: str, directory: str) -> None:
     worker_target = candidate.worker_target if candidate else "my_app.main:agent_runtime"
     frontend = _select_frontend(discover_frontend_candidates(target))
     environment = _prompt_environment()
+    _print_init_banner()
 
     config_content = f"""# Amber Runtime configuration
-# https://github.com/amber-runtime/playground
-
+# Used as the AWS resource prefix. Change this if you deploy multiple Amber apps
+# in the same AWS account/environment.
 name: {name}
 
 # Explicit application entrypoints.
@@ -82,24 +92,24 @@ environment: {environment}
                 f.write("\n")
             f.write(".amber/\n")
 
-    click.echo(f"Created {config_path}")
-    click.echo(f"Environment: {environment}")
-    if candidate:
-        click.echo(f"Discovered app:    {candidate.app_target}")
-        click.echo(f"Discovered worker: {candidate.worker_target}")
-    else:
+    click.echo(f"Created amber.yaml for {environment}.")
+    if not candidate:
         click.echo("No app/worker pair discovered; using editable placeholders.")
-    if frontend is not None:
-        click.echo(
-            f"Discovered frontend: {frontend.framework} ({frontend.rel_path(target)}/)"
-        )
     click.echo()
     click.echo("Next steps:")
-    click.echo("  1. Review app/worker in amber.yaml")
+    click.echo("  1. Review amber.yaml")
     click.echo("  2. Configure AWS access: amber auth setup")
     click.echo("  3. Set your API key:  amber config set openai-api-key")
     click.echo("  4. Deploy:            amber deploy")
     click.echo("  5. Create admin user: amber admin create-user --email <you@example.com>")
+
+
+def _print_init_banner() -> None:
+    if click.get_text_stream("stdout").isatty():
+        click.echo(f"{AMBER_ORANGE_ANSI}{AMBER_INIT_BANNER}{ANSI_RESET}")
+    else:
+        click.echo(AMBER_INIT_BANNER)
+    click.echo()
 
 
 def _select_candidate(candidates: list[AppCandidate]) -> AppCandidate | None:

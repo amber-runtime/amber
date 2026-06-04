@@ -11,6 +11,8 @@ from amber_cli.discovery import (
     discover_frontend_candidates,
 )
 
+AMBER_BANNER_LINE = "    _    __  __ ____  _____ ____"
+
 
 def write_package_json(
     path: Path, *, deps: dict | None = None, dev_deps: dict | None = None
@@ -92,9 +94,24 @@ def test_init_writes_discovered_targets() -> None:
         config = (root / "amber.yaml").read_text(encoding="utf-8")
 
     assert result.exit_code == 0
-    assert "Environment: dev" in result.output
-    assert "Discovered app:    my_app.main:app" in result.output
+    assert "Created amber.yaml for dev." in result.output
+    assert AMBER_BANNER_LINE in result.output
+    assert result.output.index("Deployment environment") < result.output.index(
+        AMBER_BANNER_LINE
+    )
+    assert result.output.index(AMBER_BANNER_LINE) < result.output.index(
+        "Created amber.yaml for dev."
+    )
+    assert "Discovered app:" not in result.output
+    assert "Discovered worker:" not in result.output
+    assert "Review amber.yaml" in result.output
     assert "amber admin create-user --email <you@example.com>" in result.output
+    assert "github.com/amber-runtime/playground" not in config
+    assert (
+        "# Used as the AWS resource prefix. Change this if you deploy multiple Amber apps\n"
+        "# in the same AWS account/environment.\n"
+        "name: demo"
+    ) in config
     assert "app: my_app.main:app" in config
     assert "worker: my_app.main:agent_runtime" in config
     assert "environment: dev" in config
@@ -111,7 +128,7 @@ def test_init_can_write_prod_environment() -> None:
         config = (root / "amber.yaml").read_text(encoding="utf-8")
 
     assert result.exit_code == 0
-    assert "Environment: prod" in result.output
+    assert "Created amber.yaml for prod." in result.output
     assert "environment: prod" in config
 
 
@@ -216,7 +233,7 @@ def test_init_writes_react_frontend_block() -> None:
         config = (root / "amber.yaml").read_text(encoding="utf-8")
 
     assert result.exit_code == 0
-    assert "Discovered frontend: react (frontend/)" in result.output
+    assert "Discovered frontend:" not in result.output
     assert "frontend:" in config
     assert "type: react" in config
     assert "path: frontend" in config
@@ -254,7 +271,7 @@ def test_init_ignores_dashboard_frontend_when_customer_has_backend_only() -> Non
         config = (root / "amber.yaml").read_text(encoding="utf-8")
 
     assert result.exit_code == 0
-    assert "Discovered app:    my_app.main:app" in result.output
+    assert "Discovered app:" not in result.output
     assert "Discovered frontend:" not in result.output
     assert "frontend:" not in config
     assert "path_prefix: /api" not in config
@@ -272,4 +289,5 @@ def test_init_does_not_overwrite_existing_amber_yaml() -> None:
 
     assert result.exit_code == 0
     assert "Already initialized" in result.output
+    assert AMBER_BANNER_LINE not in result.output
     assert config == "name: existing\n"

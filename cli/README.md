@@ -1,10 +1,9 @@
 # Amber CLI
 
-> **Current package name: `amber-runtime`.**
-> This folder contains the CLI code. The team is still validating the final
-> package naming, but local product packaging uses `amber-runtime`: users install
-> the package, run the `amber` command, and write application code with
-> `from amber import ...` via the SDK dependency.
+> **Package name: `amber-runtime`.**
+> This folder contains the CLI code. Users install the package, run the `amber`
+> command, and write application code with `from amber import ...` via the SDK
+> dependency.
 
 Deploy durable AI agents to customer-owned AWS with one product command:
 
@@ -14,7 +13,7 @@ amber deploy
 
 ## Product Flow
 
-Beta users install the built wheel, initialize a repo, review `amber.yaml`, and
+Users install the package from PyPI, initialize a repo, review `amber.yaml`, and
 deploy.
 
 ```bash
@@ -26,8 +25,11 @@ amber config set openai-api-key
 amber deploy
 amber admin create-user --email dev@example.com
 amber status
-amber destroy
 ```
+
+Create the first dashboard admin user after `amber deploy`; the command reads
+Terraform outputs from the deployed stack. Cognito sends the invite email with a
+temporary password for `/admin/`.
 
 `amber.yaml` is the user-facing deployment config. End users should not edit
 Terraform variables directly for the normal product path. During deploy, the CLI
@@ -104,8 +106,7 @@ building a wheel.
 
 ```bash
 make cli-assets
-cd cli
-uv build
+make cli-wheelhouse
 ```
 
 For a local product smoke test from this repo:
@@ -128,6 +129,16 @@ This builds local wheels, installs `amber-runtime` into a fresh virtualenv, runs
 `amber --help`, initializes a temporary customer repo, and confirms deploy
 preflight starts from the installed package. It does not publish anything to
 PyPI.
+
+For release validation, publish `amber-sdk` first and then `amber-runtime` to
+TestPyPI. Install from TestPyPI with real PyPI as the dependency fallback:
+
+```bash
+pip install \
+  --index-url https://test.pypi.org/simple/ \
+  --extra-index-url https://pypi.org/simple/ \
+  amber-runtime
+```
 
 ## Deploy Pipeline
 
@@ -162,11 +173,16 @@ amber deploy --service customer-app
 | `amber auth login` | Refresh the saved AWS SSO session |
 | `amber auth check` | Verify the configured AWS profile |
 | `amber admin create-user --email <email>` | Create a Cognito dashboard admin user |
+| `amber admin login` | Sign in for CLI workflow queries |
+| `amber admin logout` | Clear the cached CLI dashboard session |
 | `amber deploy` | Build and deploy to AWS |
 | `amber destroy` | Tear down deployed AWS resources |
 | `amber config list` | Show project info and secret status |
 | `amber config set <key>` | Set a secret in AWS |
 | `amber status` | Show ECS health and deployed URLs |
+| `amber workflows list` | List deployed workflows |
+| `amber workflows queued` | List queued workflows |
+| `amber workflows show <workflow_id>` | Show workflow summary, steps, and events |
 
 ## AWS Credentials
 
@@ -192,6 +208,22 @@ amber auth check
 
 `amber auth setup` writes the selected `profile` and `region` into `amber.yaml`.
 It never writes secrets into `amber.yaml`.
+
+## Workflow Visibility
+
+After deployment and first admin creation, sign in once for terminal workflow
+queries:
+
+```bash
+amber admin login
+amber workflows list
+amber workflows queued
+amber workflows show <workflow_id>
+```
+
+These commands read through the Cognito-protected dashboard API. Use `--json`
+with workflow commands when another script or coding agent should consume the
+raw response.
 
 ## Secrets
 

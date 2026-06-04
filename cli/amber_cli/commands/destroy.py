@@ -7,12 +7,27 @@ import subprocess
 from pathlib import Path
 
 import click
+from botocore.exceptions import ClientError
 from rich.console import Console
 
 from amber_cli.aws_auth import AWSAuthError, print_auth_error, require_identity
 from amber_cli.config_loader import find_config_path, load_config
 
 console = Console()
+
+PROD_DESTROY_TERRAFORM_ARGS = [
+    "-var=db_deletion_protection=false",
+    "-var=frontend_bucket_force_destroy=true",
+    "-var=secrets_force_destroy=true",
+    "-var=db_skip_final_snapshot=true",
+    "-var=db_delete_automated_backups=true",
+]
+
+PROD_DATA_LOSS_WARNING = (
+    "This will permanently delete the prod database without a final snapshot, "
+    "delete automated backups, purge secrets immediately, and empty versioned "
+    "frontend buckets."
+)
 
 
 def _run_with_status(
@@ -32,9 +47,9 @@ def _terraform_init(tf_dir: Path) -> None:
         raise SystemExit(1)
 
 
-def _terraform_destroy(tf_dir: Path) -> None:
+def _terraform_destroy(tf_dir: Path, extra_args: list[str] | None = None) -> None:
     result = _run_with_status(
-        ["terraform", "destroy", "-auto-approve"],
+        ["terraform", "destroy", "-auto-approve", *(extra_args or [])],
         tf_dir,
         "  Destroying AWS resources...",
     )
@@ -42,6 +57,28 @@ def _terraform_destroy(tf_dir: Path) -> None:
         detail = result.stderr or result.stdout
         console.print(f"[red]Terraform destroy failed:[/red]\n{detail}")
         raise SystemExit(1)
+
+
+def _disable_rds_deletion_protection(session, region: str, db_identifier: str) -> None:
+    rds = session.client("rds", region_name=region)
+    try:
+        rds.modify_db_instance(
+            DBInstanceIdentifier=db_identifier,
+            DeletionProtection=False,
+            ApplyImmediately=True,
+        )
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code")
+        if code == "DBInstanceNotFound":
+            console.print(
+                f"[dim]RDS instance {db_identifier} is already gone; continuing.[/dim]"
+            )
+            return
+        raise
+
+    console.print(f"  Disabled RDS deletion protection: {db_identifier}")
+    waiter = rds.get_waiter("db_instance_available")
+    waiter.wait(DBInstanceIdentifier=db_identifier)
 
 
 @click.command()
@@ -78,7 +115,7 @@ def destroy(env: str, yes: bool, allow_prod_data_loss: bool) -> None:
     os.environ["AWS_DEFAULT_REGION"] = region
 
     try:
-        _, identity = require_identity(cfg.profile, region)
+        session, identity = require_identity(cfg.profile, region)
     except AWSAuthError as exc:
         print_auth_error(console, exc, "amber destroy")
         raise SystemExit(1) from exc
@@ -98,21 +135,26 @@ def destroy(env: str, yes: bool, allow_prod_data_loss: bool) -> None:
         )
         raise SystemExit(1)
 
-    if not yes:
-        if cfg.environment == "prod":
-            expected = f"{cfg.name}-{cfg.environment}"
-            typed = click.prompt(f"Type {expected} to destroy this prod stack", default="")
-            if typed != expected:
-                console.print("[yellow]Destroy cancelled.[/yellow]")
-                raise SystemExit(1)
-        else:
-            confirmed = click.confirm("Destroy these AWS resources?", default=False)
-            if not confirmed:
-                console.print("[yellow]Destroy cancelled.[/yellow]")
-                raise SystemExit(1)
+    prod_force_destroy = cfg.environment == "prod" and allow_prod_data_loss
+    if cfg.environment == "prod":
+        console.print(f"[bold red]{PROD_DATA_LOSS_WARNING}[/bold red]")
+        console.print()
+        expected = f"{cfg.name}-{cfg.environment}"
+        typed = click.prompt(f"Type {expected} to destroy this prod stack", default="")
+        if typed != expected:
+            console.print("[yellow]Destroy cancelled.[/yellow]")
+            raise SystemExit(1)
+    elif not yes:
+        confirmed = click.confirm("Destroy these AWS resources?", default=False)
+        if not confirmed:
+            console.print("[yellow]Destroy cancelled.[/yellow]")
+            raise SystemExit(1)
 
     _terraform_init(tf_dir)
-    _terraform_destroy(tf_dir)
+    destroy_args = PROD_DESTROY_TERRAFORM_ARGS if prod_force_destroy else []
+    if prod_force_destroy:
+        _disable_rds_deletion_protection(session, region, cfg.prefix)
+    _terraform_destroy(tf_dir, destroy_args)
 
     console.print("[green]Cloud resources destroyed.[/green]")
     console.print("Local config kept: amber.yaml")

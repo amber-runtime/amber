@@ -5,8 +5,24 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "amber-runtime"
 version = "0.1.0"
-description = "Amber Runtime - durable AI agent execution"
+description = "Deploy and operate durable AI agents in customer-owned AWS environments"
+readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+authors = [
+    { name = "Amber" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: System :: Systems Administration",
+]
 dependencies = [
     "amber-sdk>=0.1.0",
     "certifi>=2023.7.22",
@@ -19,6 +35,9 @@ dependencies = [
 
 [project.scripts]
 amber = "amber_cli.main:cli"
+
+[project.urls]
+Repository = "https://github.com/amber-runtime/playground"
 
 [tool.setuptools.packages.find]
 where = ["."]
