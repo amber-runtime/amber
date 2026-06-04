@@ -57,7 +57,7 @@ def prepare_control_plane() -> None:
     copy_tree(
         ROOT / "dashboard" / "backend",
         dashboard_pkg / "backend",
-        shutil.ignore_patterns("__pycache__", "*.pyc"),
+        shutil.ignore_patterns("__pycache__", "*.pyc", "test_*.py", "*_test.py"),
     )
     (dst / "pyproject.toml").write_text(
         """[project]
@@ -91,6 +91,7 @@ def prepare_sdk() -> None:
     clean_dir(dst)
     out_dir = dst.resolve()
     run(["uv", "build", "--wheel", "--out-dir", str(out_dir)], cwd=ROOT / "sdk")
+    (dst / ".gitignore").unlink(missing_ok=True)
 
 
 def prepare_frontend() -> None:

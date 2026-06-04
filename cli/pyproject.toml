@@ -39,9 +39,14 @@ amber = "amber_cli.main:cli"
 [project.urls]
 Repository = "https://github.com/amber-runtime/playground"
 
+[tool.setuptools]
+include-package-data = false
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["amber_cli*"]
+exclude = ["amber_cli.asset_sources*"]
+namespaces = false
 
 [tool.setuptools.package-data]
 amber_cli = [
