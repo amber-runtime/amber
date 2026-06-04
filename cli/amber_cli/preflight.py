@@ -36,9 +36,14 @@ def run_deploy_preflight(
 ) -> PreflightResult:
     """Validate local and AWS prerequisites before deploy mutates anything."""
     result = PreflightResult()
+    needs_frontend_build = require_frontend and _needs_frontend_build(cfg)
     result.errors.extend(validate_deploy_config(cfg))
     result.errors.extend(_check_assets(require_build=require_build, require_frontend=require_frontend))
-    result.errors.extend(_check_tooling(require_docker=require_build))
+    result.errors.extend(
+        _check_tooling(require_docker=require_build or needs_frontend_build)
+    )
+    if needs_frontend_build:
+        result.errors.extend(_check_customer_frontend(repo_root, cfg))
     result.errors.extend(_check_import_target(repo_root, cfg.app, "app"))
     result.errors.extend(_check_import_target(repo_root, cfg.worker, "worker"))
     if not cfg.profile:
@@ -95,6 +100,25 @@ def _check_assets(*, require_build: bool = True, require_frontend: bool = True) 
                 f"Expected exactly one packaged SDK wheel, found {len(wheels)}. Run `make cli-assets`."
             )
     return errors
+
+
+def _needs_frontend_build(cfg: AmberConfig) -> bool:
+    return cfg.frontend is not None and cfg.frontend.type == "react"
+
+
+def _check_customer_frontend(repo_root: Path, cfg: AmberConfig) -> list[str]:
+    """Ensure a declared React frontend actually exists on disk before deploy."""
+    if not _needs_frontend_build(cfg):
+        return []
+    fe = cfg.frontend
+    if not fe.path:
+        return []  # already reported by validate_deploy_config
+    frontend_dir = (repo_root / fe.path).resolve()
+    if not frontend_dir.is_dir():
+        return [f"frontend.path does not exist: {frontend_dir}."]
+    if not (frontend_dir / "package.json").is_file():
+        return [f"No package.json in frontend.path: {frontend_dir}."]
+    return []
 
 
 def _check_tooling(*, require_docker: bool = True) -> list[str]:

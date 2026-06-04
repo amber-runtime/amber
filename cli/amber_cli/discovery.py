@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -39,6 +40,40 @@ class AppCandidate:
     @property
     def worker_target(self) -> str:
         return f"{self.module}:{self.worker_name}"
+
+
+@dataclass(frozen=True)
+class FrontendCandidate:
+    """A customer React SPA discovered from a package.json."""
+
+    path: Path  # directory containing package.json
+    framework: str  # "react"
+    build_command: str  # e.g. "npm run build"
+    output_dir: str  # build output dir, e.g. "dist" (vite) or "build" (CRA)
+
+    def rel_path(self, root: Path) -> str:
+        """Path relative to the project root, for recording in amber.yaml."""
+        rel = self.path.relative_to(root)
+        return rel.as_posix() if rel.parts else "."
+
+
+def discover_frontend_candidates(root: Path) -> list[FrontendCandidate]:
+    """Find React SPA directories (package.json declaring a react dependency)."""
+    candidates: list[FrontendCandidate] = []
+    for path in _iter_package_jsons(root):
+        found = _inspect_package_json(path)
+        if found is None:
+            continue
+        build_command, output_dir = found
+        candidates.append(
+            FrontendCandidate(
+                path=path.parent,
+                framework="react",
+                build_command=build_command,
+                output_dir=output_dir,
+            )
+        )
+    return sorted(candidates, key=lambda c: (len(c.path.parts), str(c.path)))
 
 
 def discover_app_candidates(root: Path) -> list[AppCandidate]:
@@ -117,3 +152,34 @@ def _is_call_named(node: ast.AST, names: set[str]) -> bool:
     if isinstance(func, ast.Attribute):
         return func.attr in names
     return False
+
+
+def _iter_package_jsons(root: Path) -> list[Path]:
+    paths: list[Path] = []
+    for path in root.rglob("package.json"):
+        if any(part in SKIP_DIRS for part in path.relative_to(root).parts):
+            continue
+        paths.append(path)
+    return sorted(paths)
+
+
+def _inspect_package_json(path: Path) -> tuple[str, str] | None:
+    """Return (build_command, output_dir) when package.json declares React."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+
+    deps = {}
+    for key in ("dependencies", "devDependencies"):
+        value = data.get(key)
+        if isinstance(value, dict):
+            deps.update(value)
+    if "react" not in deps:
+        return None
+
+    # react-scripts (Create React App) emits to build/; Vite and most others to dist/.
+    output_dir = "build" if "react-scripts" in deps else "dist"
+    return "npm run build", output_dir

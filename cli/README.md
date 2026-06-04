@@ -52,6 +52,37 @@ environment: dev
 `environment: prod` uses safer Terraform defaults for buckets, secrets, and RDS,
 but still uses local Terraform state in this beta path.
 
+### React frontend (optional)
+
+By default the customer container owns `/` and serves its own UI (e.g. a
+server-rendered Jinja app). If your product UI is a React single-page app instead,
+keep it in a subdirectory with a `package.json` that declares `react`:
+
+```
+my-project/
+  my_app/        # FastAPI app + AgentRuntime
+  frontend/      # React SPA (package.json, vite.config.ts, src/, ...)
+  amber.yaml
+```
+
+`amber init` detects it and records a `frontend:` block:
+
+```yaml
+frontend:
+  type: react
+  path: frontend       # frontend dir, relative to the repo root
+  build: npm run build
+  output: dist         # build output dir (vite -> dist, CRA -> build)
+path_prefix: /api      # required for react: your API is served under /api
+```
+
+On `amber deploy` the SPA is built in a throwaway `node:20` container (so only
+Docker is required — no host Node), then served at `/` from S3/CloudFront. Your
+FastAPI app is reached under `/api/*`; the `/api` prefix is stripped before your
+app, so you still write routes at the root (`/runs`, `/health`). Have the React
+client call the API at `/api/...` — the build sets `VITE_BASE_PATH=/` and
+`VITE_API_BASE_URL=/api`.
+
 ## Maintainer Flow
 
 When changing the CLI package or bundled deploy assets, refresh assets before

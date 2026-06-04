@@ -74,6 +74,17 @@ variable "path_prefix" {
   }
 }
 
+variable "customer_frontend" {
+  description = "Customer UI delivery: 'react' serves an S3/CloudFront SPA at /; 'server' (default) lets the customer container own /."
+  type        = string
+  default     = "server"
+
+  validation {
+    condition     = contains(["server", "react"], var.customer_frontend)
+    error_message = "customer_frontend must be 'server' or 'react'."
+  }
+}
+
 # -----------------------------------------------------------------------------
 # VPC / Networking
 # -----------------------------------------------------------------------------

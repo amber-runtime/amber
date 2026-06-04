@@ -26,6 +26,7 @@ class FakeConfig:
     worker: str = "my_app.main:agent_runtime"
     path_prefix: str = ""
     profile: str = ""
+    frontend: object | None = None
 
     @property
     def ssm_base(self) -> str:
@@ -354,6 +355,56 @@ def test_write_tfvars_uses_dev_disposable_defaults(tmp_path: Path) -> None:
     assert 'db_instance_class = "db.t4g.micro"' in tfvars
     assert "db_allocated_storage = 20" in tfvars
     assert 'path_prefix = ""' in tfvars
+    assert 'customer_frontend = "server"' in tfvars
+
+
+def test_write_tfvars_emits_react_customer_frontend(tmp_path: Path) -> None:
+    frontend = SimpleNamespace(
+        type="react", path="frontend", build="npm run build", output="dist"
+    )
+    cfg = FakeConfig(path_prefix="/api", frontend=frontend)
+    deploy_mod._write_tfvars(tmp_path, cfg, "tag")
+
+    tfvars = (tmp_path / "terraform.tfvars").read_text(encoding="utf-8")
+
+    assert 'customer_frontend = "react"' in tfvars
+    assert 'path_prefix = "/api"' in tfvars
+
+
+def test_build_and_sync_customer_frontend_targets_bucket_root(
+    monkeypatch, tmp_path: Path
+) -> None:
+    frontend_dir = tmp_path / "frontend"
+    dist = frontend_dir / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<html></html>", encoding="utf-8")
+    (dist / "assets" / "app.js").write_text("console.log('ok')", encoding="utf-8")
+
+    builds: list[tuple[Path, str]] = []
+    monkeypatch.setattr(
+        deploy_mod,
+        "_docker_build_customer_frontend",
+        lambda d, cmd: builds.append((d, cmd)),
+    )
+    monkeypatch.setattr(deploy_mod.time, "time", lambda: 1_717_171_719)
+
+    cfg = FakeConfig(
+        path_prefix="/api",
+        frontend=SimpleNamespace(
+            type="react", path="frontend", build="npm run build", output="dist"
+        ),
+    )
+    session = FakeFrontendSession()
+
+    deploy_mod._build_and_sync_customer_frontend(
+        session, tmp_path, cfg, "frontend-bucket", "DIST123", "us-west-2"
+    )
+
+    assert builds == [(frontend_dir, "npm run build")]
+    assert session.s3.uploads == ["index.html", "assets/app.js"]
+    # Prunes stale root assets but never touches the admin/ prefix.
+    assert session.s3.deleted == ["elsewhere.txt"]
+    assert session.cloudfront.invalidations[0]["DistributionId"] == "DIST123"
 
 
 def test_write_tfvars_uses_prod_hardened_defaults(tmp_path: Path) -> None:

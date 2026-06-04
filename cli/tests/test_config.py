@@ -9,7 +9,11 @@ from click.testing import CliRunner
 
 from amber_cli import cli
 from amber_cli.commands import config as config_mod
-from amber_cli.config_loader import load_config, validate_deploy_config
+from amber_cli.config_loader import (
+    FrontendConfig,
+    load_config,
+    validate_deploy_config,
+)
 
 
 @dataclass
@@ -118,6 +122,70 @@ def test_validate_deploy_config_rejects_relative_path_prefix() -> None:
     cfg.path_prefix = "api"
 
     assert validate_deploy_config(cfg) == ["path_prefix must start with /"]
+
+
+def _valid_react_config():
+    cfg = load_config("/path/that/does/not/exist")
+    cfg.name = "test-project"
+    cfg.app = "my_app.main:app"
+    cfg.worker = "my_app.main:agent_runtime"
+    cfg.path_prefix = "/api"
+    cfg.frontend = FrontendConfig(type="react", path="frontend")
+    return cfg
+
+
+def test_load_config_parses_react_frontend_block(tmp_path: Path) -> None:
+    (tmp_path / "amber.yaml").write_text(
+        "\n".join(
+            [
+                "name: test-project",
+                "app: my_app.main:app",
+                "worker: my_app.main:agent_runtime",
+                "path_prefix: /api",
+                "frontend:",
+                "  type: react",
+                "  path: frontend",
+                "  build: npm run build",
+                "  output: dist",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    cfg = load_config(str(tmp_path))
+
+    assert cfg.frontend == FrontendConfig(
+        type="react", path="frontend", build="npm run build", output="dist"
+    )
+
+
+def test_load_config_without_frontend_block_is_none(tmp_path: Path) -> None:
+    write_config(tmp_path / "amber.yaml")
+
+    assert load_config(str(tmp_path)).frontend is None
+
+
+def test_validate_deploy_config_allows_valid_react_frontend() -> None:
+    assert validate_deploy_config(_valid_react_config()) == []
+
+
+def test_validate_deploy_config_react_requires_api_path_prefix() -> None:
+    cfg = _valid_react_config()
+    cfg.path_prefix = ""
+
+    errors = validate_deploy_config(cfg)
+
+    assert any("path_prefix: /api" in e for e in errors)
+
+
+def test_validate_deploy_config_rejects_unsupported_frontend_type() -> None:
+    cfg = _valid_react_config()
+    cfg.frontend = FrontendConfig(type="vue", path="frontend")
+
+    errors = validate_deploy_config(cfg)
+
+    assert any("not supported" in e for e in errors)
 
 
 def test_config_set_openai_key_first_deploy_recommends_full_deploy(monkeypatch) -> None:

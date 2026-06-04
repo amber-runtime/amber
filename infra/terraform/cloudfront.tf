@@ -79,6 +79,26 @@ function handler(event) {
 EOT
 }
 
+# Rewrites extension-less routes to /index.html so the customer React SPA can
+# deep-link. Only attached to the default behavior (customer_frontend = "react"),
+# so /admin/*, /admin/api/*, and /api/* are already handled by higher-priority
+# ordered behaviors before this runs.
+resource "aws_cloudfront_function" "customer_spa_rewrite" {
+  name    = "${var.project_name}-${var.environment}-customer-spa-rewrite"
+  runtime = "cloudfront-js-2.0"
+  comment = "Rewrite customer SPA routes to /index.html"
+  publish = true
+  code    = <<-EOT
+function handler(event) {
+  var request = event.request;
+  if (request.uri.indexOf(".") === -1) {
+    request.uri = "/index.html";
+  }
+  return request;
+}
+EOT
+}
+
 # --- Distribution ---
 
 resource "aws_cloudfront_distribution" "main" {
@@ -156,14 +176,33 @@ resource "aws_cloudfront_distribution" "main" {
     origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
   }
 
-  # Default: customer app.
+  # Default route. 'server' (default): customer app via ALB. 'react': customer
+  # React SPA served from S3 (the FastAPI API is reached under /api/* above).
   default_cache_behavior {
-    target_origin_id         = "alb"
-    viewer_protocol_policy   = "redirect-to-https"
-    allowed_methods          = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
-    cached_methods           = ["GET", "HEAD", "OPTIONS"]
-    cache_policy_id          = data.aws_cloudfront_cache_policy.caching_disabled.id
-    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
+    target_origin_id       = var.customer_frontend == "react" ? "s3" : "alb"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD", "OPTIONS"]
+    cache_policy_id = (
+      var.customer_frontend == "react"
+      ? data.aws_cloudfront_cache_policy.caching_optimized.id
+      : data.aws_cloudfront_cache_policy.caching_disabled.id
+    )
+    # Only the ALB origin needs viewer headers forwarded; S3 must not receive them.
+    origin_request_policy_id = (
+      var.customer_frontend == "react"
+      ? null
+      : data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
+    )
+    compress = var.customer_frontend == "react"
+
+    dynamic "function_association" {
+      for_each = var.customer_frontend == "react" ? [1] : []
+      content {
+        event_type   = "viewer-request"
+        function_arn = aws_cloudfront_function.customer_spa_rewrite.arn
+      }
+    }
   }
 
   restrictions {
