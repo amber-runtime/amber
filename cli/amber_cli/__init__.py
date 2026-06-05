@@ -6,7 +6,7 @@ from amber_cli.commands import admin, auth, config, deploy, destroy, init, statu
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="amber")
+@click.version_option(version="0.1.1", prog_name="amber")
 def cli():
     """Amber Runtime CLI — deploy and manage durable AI agents."""
     pass
