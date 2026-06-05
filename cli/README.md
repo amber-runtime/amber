@@ -1,20 +1,13 @@
 # Amber CLI
 
-> **Package name: `amber-runtime`.**
-> This folder contains the CLI code. Users install the package, run the `amber`
-> command, and write application code with `from amber import ...` via the SDK
-> dependency.
+Install `amber-runtime` to get the `amber` command for deploying durable AI
+agents to customer-owned AWS. The package also installs `amber-sdk`, so your
+application code can define agents with `from amber import ...`.
 
-Deploy durable AI agents to customer-owned AWS with one product command:
+## Quickstart
 
-```bash
-amber deploy
-```
-
-## Product Flow
-
-Users install the package from PyPI, initialize a repo, review `amber.yaml`, and
-deploy.
+Install the package, initialize a repo, review `amber.yaml`, configure AWS and
+secrets, then deploy.
 
 ```bash
 pip install amber-runtime
@@ -29,6 +22,9 @@ amber admin create-user --email dev@example.com
 amber status
 ```
 
+After setup, `amber deploy` runs the full deploy pipeline for your app, worker,
+dashboard, database, and AWS infrastructure.
+
 Create the first dashboard admin user after `amber deploy`; the command reads
 Terraform outputs from the deployed stack. Cognito sends the invite email with a
 temporary password for `/admin/`.
@@ -38,7 +34,7 @@ Terraform variables directly for the normal product path. During deploy, the CLI
 copies the bundled Terraform template into `.amber/terraform/` and generates
 `.amber/terraform/terraform.tfvars` from `amber.yaml`.
 
-```yaml
+```amber.yaml
 name: my-project
 
 app: my_app.main:app
@@ -49,7 +45,7 @@ environment: dev
 # region: us-east-1
 # profile: amber
 # dashboard: true
-# path_prefix: ""  # optional; current ASGI/Jinja apps own /
+# path_prefix: ""  # optional; server-rendered apps can serve / directly
 ```
 
 `environment: dev` keeps disposable defaults for local demos and testing.
@@ -80,26 +76,23 @@ frontend:
 path_prefix: /api      # required for react: your API is served under /api
 ```
 
-On `amber deploy` the SPA is built in a throwaway `node:20` container (so only
-Docker is required — no host Node), then served at `/` from S3/CloudFront. Your
-FastAPI app is reached under `/api/*`; the `/api` prefix is stripped before your
-app, so you still write routes at the root (`/runs`, `/health`). Have the React
-client call the API at `/api/...` — the build sets `VITE_BASE_PATH=/` and
-`VITE_API_BASE_URL=/api`.
+When `frontend:` is configured, `amber deploy` builds the React SPA in a
+temporary `node:20` Docker container, so Docker is the only local build
+requirement. The built SPA is served from S3/CloudFront at `/`.
 
-Route ownership stays separate from the Amber admin surface:
+Amber routes traffic by path:
 
-- `/` serves the customer app, or the customer React SPA when `frontend:` is set.
-- `/api/*` is the developer app's public API surface behind CloudFront/ALB; the
-  ALB blocks direct origin access with Amber's CloudFront origin verification
-  header, but these routes are still reachable through the app's CloudFront URL.
-- `/admin/*` serves the Amber admin React frontend.
-- `/admin/api/*` serves the Amber dashboard backend, which enforces Cognito
-  bearer auth before returning protected dashboard data.
+- `/` serves the customer app or React SPA.
+- `/api/*` reaches the customer FastAPI app. Amber strips the `/api` prefix, so
+  app routes are still written as `/runs`, `/health`, and so on.
+- `/admin/*` serves the Amber admin dashboard, which prompts admins to sign in with Cognito.
+- `/admin/api/*` serves the Cognito-protected Amber dashboard API.
 
-Amber does not automatically wrap the developer app's `/api` routes in dashboard
-Cognito auth, because many customer apps need public endpoints. If your `/api`
-routes expose private data or mutations, enforce auth inside your app.
+React clients should call the app API at `/api/...`. The frontend build sets
+`VITE_BASE_PATH=/` and `VITE_API_BASE_URL=/api`.
+
+Amber does not add dashboard Cognito auth to customer `/api` routes. If those
+routes expose private data or mutations, enforce auth in your app.
 
 ## Deploy Pipeline
 
@@ -115,8 +108,8 @@ After preflight, `amber deploy` runs five steps:
 4. **Frontend** - sync bundled React dashboard assets to S3 and invalidate CloudFront
 5. **Summary** - print dashboard and API URLs
 
-Partial flags exist for development, but the supported full deploy path is
-`amber deploy`.
+Advanced deploy flags are available for development and troubleshooting, but the
+supported full deploy path is `amber deploy`.
 
 ```bash
 amber deploy --no-infra
@@ -141,9 +134,9 @@ amber deploy --service customer-app
 | `amber config list` | Show project info and secret status |
 | `amber config set <key>` | Set a secret in AWS |
 | `amber status` | Show ECS health and deployed URLs |
-| `amber workflows list` | List deployed workflows for scripts/agents |
-| `amber workflows queued` | List queued workflows for scripts/agents |
-| `amber workflows show <workflow_id>` | Show workflow details for scripts/agents |
+| `amber workflows list` | List deployed workflows for scripts and coding agents |
+| `amber workflows queued` | List queued workflows for scripts and coding agents |
+| `amber workflows show <workflow_id>` | Show workflow details for scripts and coding agents |
 
 ## AWS Credentials
 
@@ -230,7 +223,7 @@ Use `amber destroy --yes` for non-interactive cleanup. The command keeps local
 project config in `amber.yaml`; to fully reset local Amber config after
 destroying cloud resources, run `rm amber.yaml && rm -rf .amber`.
 
-Prod stacks require an explicit testing escape hatch:
+Destroying a prod stack requires an explicit confirmation flag:
 
 ```bash
 amber destroy --allow-prod-data-loss
@@ -241,7 +234,11 @@ of test prod stacks.
 
 ## Terraform State
 
-For this local/beta phase, Terraform state lives in
-`.amber/terraform/terraform.tfstate`. Keep `.amber/` around if you want the same
-machine to run future deploys or destroys. AWS-backed remote state is deferred
-until the production/multi-user deploy story is ready.
+Amber stores Terraform state in `.amber/terraform/terraform.tfstate` for the
+current project. Keep `.amber/` if you want this checkout to continue managing
+the same deployed AWS stack, including future deploys and destroys.
+
+If you delete `.amber/`, Amber loses the local Terraform state for that stack.
+Use `amber destroy` before removing it when you want Amber to clean up the AWS
+resources it created. Remote state support will be added when shared/team deploys
+need it.

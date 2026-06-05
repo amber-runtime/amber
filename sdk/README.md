@@ -2,23 +2,25 @@
 
 `amber-sdk` is the Python library for defining durable Amber agent workflows in
 customer applications. It provides the runtime object used by API and worker
-processes, decorators for durable workflows and steps, and helpers for querying
-workflow data.
+processes, plus decorators for durable workflows and steps.
 
 ## Install
 
-```bash
-pip install amber-sdk
-```
-
-Most deployment users install the full Amber CLI package instead:
+If you are deploying with Amber, install the full product package:
 
 ```bash
 pip install amber-runtime
 ```
 
-`amber-runtime` depends on `amber-sdk`, so application code can use the SDK after
-installing the CLI package.
+`amber-runtime` includes the `amber` CLI and depends on `amber-sdk`, so
+application code can use `from amber import ...`.
+
+Install `amber-sdk` directly only when you need the Python library without the
+CLI:
+
+```bash
+pip install amber-sdk
+```
 
 ## Public API
 
@@ -89,8 +91,8 @@ Run a worker process against the same `AgentRuntime` target:
 python -m amber.worker my_app.main:agent_runtime
 ```
 
-Durable execution requires a DBOS system database. Set either `DB_URL` or
-`DBOS_SYSTEM_DATABASE_URL` in the API and worker environments.
+Durable execution requires a Postgres database for DBOS state. Set `DB_URL` in
+both the API and worker environments.
 
 ## Deploying
 
@@ -102,5 +104,5 @@ amber init
 amber deploy
 ```
 
-See the repository README and CLI package documentation for the full deploy and
-dashboard workflow.
+See the `amber-runtime` package documentation for deployment, dashboard access,
+and workflow visibility.
