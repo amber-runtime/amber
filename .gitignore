@@ -17,7 +17,8 @@ dist/
 # Terraform (infra/terraform/)
 .terraform/
 .amber/
-cli/amber_cli/assets/
+cli/amber_cli/assets/*
+!cli/amber_cli/assets/banner.txt
 *.tfstate
 *.tfstate.*
 *.tfvars
