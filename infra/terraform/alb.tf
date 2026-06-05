@@ -2,8 +2,9 @@
 # Application Load Balancer
 # =============================================================================
 # Path-based routing on port 80:
-#   /dashboard/*  → dashboard-api  (port 8001)
-#   /api/*        → customer-app   (port 8003)
+#   /admin/api/*  → dashboard-api  (port 8001)
+#   /api/*        → customer-app   (reserved customer API path)
+#   /*            → customer-app   (current ASGI/Jinja customer app)
 #
 # CloudFront sits in front and handles HTTPS termination.
 # =============================================================================
@@ -123,7 +124,7 @@ resource "aws_lb_listener" "http" {
 # Every rule requires the origin-verify header in addition to its path, so only
 # traffic proxied by our CloudFront distribution is forwarded to a target group.
 
-# /dashboard/*  → dashboard-api
+# /admin/api/*  → dashboard-api
 resource "aws_lb_listener_rule" "dashboard_api" {
   listener_arn = aws_lb_listener.http.arn
   priority     = 100
@@ -135,7 +136,7 @@ resource "aws_lb_listener_rule" "dashboard_api" {
 
   condition {
     path_pattern {
-      values = ["/dashboard/*", "/dashboard"]
+      values = ["/admin/api/*", "/admin/api"]
     }
   }
 
@@ -147,8 +148,8 @@ resource "aws_lb_listener_rule" "dashboard_api" {
   }
 }
 
-# /api/*  → customer-app
-resource "aws_lb_listener_rule" "customer_app" {
+# /api/*  → customer-app (reserved customer API path)
+resource "aws_lb_listener_rule" "customer_api" {
   listener_arn = aws_lb_listener.http.arn
   priority     = 200
 
@@ -160,6 +161,30 @@ resource "aws_lb_listener_rule" "customer_app" {
   condition {
     path_pattern {
       values = ["/api/*", "/api"]
+    }
+  }
+
+  condition {
+    http_header {
+      http_header_name = "X-Origin-Verify"
+      values           = [random_password.origin_verify.result]
+    }
+  }
+}
+
+# /*  → customer-app
+resource "aws_lb_listener_rule" "customer_app" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 300
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.customer_app.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/*"]
     }
   }
 

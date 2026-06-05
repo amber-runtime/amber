@@ -3,7 +3,7 @@ ASGI middleware to strip a configurable path prefix from incoming requests.
 Used when running behind a path-based reverse proxy (ALB/CloudFront).
 
 Usage:
-  uvicorn strip_prefix:create_app("dashboard.backend.server:app", "/dashboard") ...
+  uvicorn strip_prefix:create_app("dashboard.backend.server:app", ["/admin/api"]) ...
 """
 
 import importlib
@@ -39,7 +39,7 @@ if __name__ == "__main__":
     import uvicorn
 
     module = os.environ.get("ASGI_APP", "dashboard.backend.server:app")
-    raw_prefixes = os.environ.get("PATH_PREFIX", "/dashboard")
+    raw_prefixes = os.environ.get("PATH_PREFIX", "")
     prefixes = [p.strip() for p in raw_prefixes.split(",") if p.strip()]
     port = int(os.environ.get("PORT", "8001"))
     app = create_app(module, prefixes)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -7,6 +9,11 @@ from click.testing import CliRunner
 
 from amber_cli import cli
 from amber_cli.commands import config as config_mod
+from amber_cli.config_loader import (
+    FrontendConfig,
+    load_config,
+    validate_deploy_config,
+)
 
 
 @dataclass
@@ -17,16 +24,34 @@ class FakeIdentity:
 
 
 class FakeSession:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        ecs_services: list[dict] | None = None,
+        ecs_failures: list[dict] | None = None,
+    ) -> None:
         self.put_calls: list[dict] = []
+        self.ecs_services = ecs_services or []
+        self.ecs_failures = ecs_failures or []
 
     def client(self, service: str, region_name: str):
-        assert service == "ssm"
+        assert service in {"ssm", "ecs"}
         assert region_name == "us-west-2"
         return self
 
     def put_parameter(self, **kwargs) -> None:
         self.put_calls.append(kwargs)
+
+    def describe_services(self, **kwargs) -> dict:
+        assert kwargs == {
+            "cluster": "test-cluster",
+            "services": [
+                "test-dashboard-api",
+                "test-customer-app",
+                "test-customer-worker",
+            ],
+        }
+        return {"services": self.ecs_services, "failures": self.ecs_failures}
 
 
 def write_config(path: Path) -> None:
@@ -50,6 +75,117 @@ def write_state(root: Path) -> None:
     tf_dir = root / ".amber" / "terraform"
     tf_dir.mkdir(parents=True)
     (tf_dir / "terraform.tfstate").write_text("{}", encoding="utf-8")
+
+
+def terraform_outputs() -> dict:
+    return {
+        "ecs_cluster_name": {"value": "test-cluster"},
+        "dashboard_api_service_name": {"value": "test-dashboard-api"},
+        "customer_app_service_name": {"value": "test-customer-app"},
+        "customer_worker_service_name": {"value": "test-customer-worker"},
+    }
+
+
+def completed_terraform_output(stdout: dict) -> subprocess.CompletedProcess:
+    return subprocess.CompletedProcess(
+        ["terraform", "output", "-json"],
+        0,
+        stdout=json.dumps(stdout),
+        stderr="",
+    )
+
+
+def test_load_config_defaults_customer_path_prefix_to_root(tmp_path: Path) -> None:
+    write_config(tmp_path / "amber.yaml")
+
+    cfg = load_config(str(tmp_path))
+
+    assert cfg.path_prefix == ""
+    assert validate_deploy_config(cfg) == []
+
+
+def test_validate_deploy_config_allows_empty_path_prefix() -> None:
+    cfg = load_config("/path/that/does/not/exist")
+    cfg.name = "test-project"
+    cfg.app = "my_app.main:app"
+    cfg.worker = "my_app.main:agent_runtime"
+    cfg.path_prefix = ""
+
+    assert validate_deploy_config(cfg) == []
+
+
+def test_validate_deploy_config_rejects_relative_path_prefix() -> None:
+    cfg = load_config("/path/that/does/not/exist")
+    cfg.name = "test-project"
+    cfg.app = "my_app.main:app"
+    cfg.worker = "my_app.main:agent_runtime"
+    cfg.path_prefix = "api"
+
+    assert validate_deploy_config(cfg) == ["path_prefix must start with /"]
+
+
+def _valid_react_config():
+    cfg = load_config("/path/that/does/not/exist")
+    cfg.name = "test-project"
+    cfg.app = "my_app.main:app"
+    cfg.worker = "my_app.main:agent_runtime"
+    cfg.path_prefix = "/api"
+    cfg.frontend = FrontendConfig(type="react", path="frontend")
+    return cfg
+
+
+def test_load_config_parses_react_frontend_block(tmp_path: Path) -> None:
+    (tmp_path / "amber.yaml").write_text(
+        "\n".join(
+            [
+                "name: test-project",
+                "app: my_app.main:app",
+                "worker: my_app.main:agent_runtime",
+                "path_prefix: /api",
+                "frontend:",
+                "  type: react",
+                "  path: frontend",
+                "  build: npm run build",
+                "  output: dist",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    cfg = load_config(str(tmp_path))
+
+    assert cfg.frontend == FrontendConfig(
+        type="react", path="frontend", build="npm run build", output="dist"
+    )
+
+
+def test_load_config_without_frontend_block_is_none(tmp_path: Path) -> None:
+    write_config(tmp_path / "amber.yaml")
+
+    assert load_config(str(tmp_path)).frontend is None
+
+
+def test_validate_deploy_config_allows_valid_react_frontend() -> None:
+    assert validate_deploy_config(_valid_react_config()) == []
+
+
+def test_validate_deploy_config_react_requires_api_path_prefix() -> None:
+    cfg = _valid_react_config()
+    cfg.path_prefix = ""
+
+    errors = validate_deploy_config(cfg)
+
+    assert any("path_prefix: /api" in e for e in errors)
+
+
+def test_validate_deploy_config_rejects_unsupported_frontend_type() -> None:
+    cfg = _valid_react_config()
+    cfg.frontend = FrontendConfig(type="vue", path="frontend")
+
+    errors = validate_deploy_config(cfg)
+
+    assert any("not supported" in e for e in errors)
 
 
 def test_config_set_openai_key_first_deploy_recommends_full_deploy(monkeypatch) -> None:
@@ -78,11 +214,70 @@ def test_config_set_openai_key_first_deploy_recommends_full_deploy(monkeypatch) 
     ]
 
 
-def test_config_set_openai_key_existing_deploy_recommends_no_build(monkeypatch) -> None:
+def test_config_set_openai_key_state_without_outputs_recommends_full_deploy(monkeypatch) -> None:
     runner = CliRunner()
     fake_session = FakeSession()
     monkeypatch.setattr(config_mod, "verify_identity", lambda profile, region: FakeIdentity())
     monkeypatch.setattr(config_mod, "create_session", lambda profile, region: fake_session)
+    monkeypatch.setattr(config_mod, "_run", lambda cmd, cwd=None, check=True: completed_terraform_output({}))
+
+    with runner.isolated_filesystem() as tmp:
+        root = Path(tmp)
+        write_config(root / "amber.yaml")
+        write_state(root)
+
+        result = runner.invoke(cli, ["config", "set", "openai-api-key"], input="sk-test\n")
+
+    assert result.exit_code == 0
+    assert "Secret saved. Continue the first deploy with: amber deploy" in result.output
+    assert "amber deploy --no-build" not in result.output
+
+
+def test_config_set_openai_key_inactive_ecs_services_recommends_full_deploy(monkeypatch) -> None:
+    runner = CliRunner()
+    fake_session = FakeSession(
+        ecs_services=[
+            {"serviceName": "test-dashboard-api", "status": "ACTIVE"},
+            {"serviceName": "test-customer-app", "status": "INACTIVE"},
+            {"serviceName": "test-customer-worker", "status": "ACTIVE"},
+        ],
+    )
+    monkeypatch.setattr(config_mod, "verify_identity", lambda profile, region: FakeIdentity())
+    monkeypatch.setattr(config_mod, "create_session", lambda profile, region: fake_session)
+    monkeypatch.setattr(
+        config_mod,
+        "_run",
+        lambda cmd, cwd=None, check=True: completed_terraform_output(terraform_outputs()),
+    )
+
+    with runner.isolated_filesystem() as tmp:
+        root = Path(tmp)
+        write_config(root / "amber.yaml")
+        write_state(root)
+
+        result = runner.invoke(cli, ["config", "set", "openai-api-key"], input="sk-test\n")
+
+    assert result.exit_code == 0
+    assert "Secret saved. Continue the first deploy with: amber deploy" in result.output
+    assert "amber deploy --no-build" not in result.output
+
+
+def test_config_set_openai_key_active_ecs_services_recommends_no_build(monkeypatch) -> None:
+    runner = CliRunner()
+    fake_session = FakeSession(
+        ecs_services=[
+            {"serviceName": "test-dashboard-api", "status": "ACTIVE"},
+            {"serviceName": "test-customer-app", "status": "ACTIVE"},
+            {"serviceName": "test-customer-worker", "status": "ACTIVE"},
+        ],
+    )
+    monkeypatch.setattr(config_mod, "verify_identity", lambda profile, region: FakeIdentity())
+    monkeypatch.setattr(config_mod, "create_session", lambda profile, region: fake_session)
+    monkeypatch.setattr(
+        config_mod,
+        "_run",
+        lambda cmd, cwd=None, check=True: completed_terraform_output(terraform_outputs()),
+    )
 
     with runner.isolated_filesystem() as tmp:
         root = Path(tmp)

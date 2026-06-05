@@ -111,6 +111,26 @@ resource "aws_ecs_task_definition" "dashboard_api" {
       {
         name  = "DBOS__VMID"
         value = "${var.project_name}-${var.environment}-dashboard-api"
+      },
+      {
+        name  = "COGNITO_ISSUER"
+        value = "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.dashboard_admin.id}"
+      },
+      {
+        name  = "COGNITO_CLIENT_ID"
+        value = aws_cognito_user_pool_client.dashboard_spa.id
+      },
+      {
+        name  = "COGNITO_REGION"
+        value = var.region
+      },
+      {
+        name  = "COGNITO_USER_POOL_ID"
+        value = aws_cognito_user_pool.dashboard_admin.id
+      },
+      {
+        name  = "COGNITO_DOMAIN"
+        value = "https://${aws_cognito_user_pool_domain.dashboard_admin.domain}.auth.${var.region}.amazoncognito.com"
       }
     ]
     secrets = local.common_secrets

@@ -64,13 +64,24 @@ variable "worker_target" {
 }
 
 variable "path_prefix" {
-  description = "Public path prefix routed to the customer app"
+  description = "Optional prefix stripped before the current customer ASGI app; leave empty for root-owned Jinja apps. /api is reserved for future customer API routing."
   type        = string
-  default     = "/api"
+  default     = ""
 
   validation {
-    condition     = startswith(var.path_prefix, "/")
-    error_message = "path_prefix must start with /."
+    condition     = var.path_prefix == "" || startswith(var.path_prefix, "/")
+    error_message = "path_prefix must be empty or start with /."
+  }
+}
+
+variable "customer_frontend" {
+  description = "Customer UI delivery: 'react' serves an S3/CloudFront SPA at /; 'server' (default) lets the customer container own /."
+  type        = string
+  default     = "server"
+
+  validation {
+    condition     = contains(["server", "react"], var.customer_frontend)
+    error_message = "customer_frontend must be 'server' or 'react'."
   }
 }
 

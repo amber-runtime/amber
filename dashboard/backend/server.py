@@ -27,11 +27,13 @@ from functools import lru_cache
 from typing import Any, Optional
 
 import httpx
+import jwt
 import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from jwt import PyJWKClient
 
 from pydantic import BaseModel
 
@@ -42,6 +44,12 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 DB_URL = os.environ.get("DB_URL") or os.environ.get("DBOS_SYSTEM_DATABASE_URL") or ""
+
+COGNITO_ISSUER = os.environ.get("COGNITO_ISSUER", "").rstrip("/")
+COGNITO_CLIENT_ID = os.environ.get("COGNITO_CLIENT_ID", "")
+COGNITO_REGION = os.environ.get("COGNITO_REGION", "")
+COGNITO_USER_POOL_ID = os.environ.get("COGNITO_USER_POOL_ID", "")
+COGNITO_DOMAIN = os.environ.get("COGNITO_DOMAIN", "")
 
 LITELLM_PRICING_URL = (
     "https://raw.githubusercontent.com/BerriAI/litellm/main/"
@@ -80,6 +88,48 @@ def get_dashboard_client() -> DashboardClient:
     if not DB_URL:
         raise RuntimeError("DB_URL or DBOS_SYSTEM_DATABASE_URL must be configured")
     return DashboardClient(db_url=DB_URL)
+
+
+def _auth_enabled() -> bool:
+    return bool(COGNITO_ISSUER and COGNITO_CLIENT_ID)
+
+
+@lru_cache(maxsize=1)
+def _get_jwks_client() -> PyJWKClient:
+    return PyJWKClient(f"{COGNITO_ISSUER}/.well-known/jwks.json")
+
+
+def _validate_cognito_token(token: str) -> dict[str, Any]:
+    try:
+        signing_key = _get_jwks_client().get_signing_key_from_jwt(token).key
+        claims = jwt.decode(
+            token,
+            signing_key,
+            algorithms=["RS256"],
+            issuer=COGNITO_ISSUER,
+            options={"verify_aud": False},
+        )
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status_code=401, detail="Invalid authorization token") from exc
+
+    token_use = claims.get("token_use")
+    client_id = claims.get("client_id") or claims.get("aud")
+    if token_use != "access" or client_id != COGNITO_CLIENT_ID:
+        raise HTTPException(status_code=401, detail="Invalid authorization token")
+    return claims
+
+
+async def require_admin(
+    authorization: Optional[str] = Header(default=None),
+) -> dict[str, Any]:
+    if not _auth_enabled():
+        return {}
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization token")
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(status_code=401, detail="Missing authorization token")
+    return _validate_cognito_token(token)
 
 
 def ensure_pricing_table(db_url: str) -> None:
@@ -121,6 +171,18 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/auth/config")
+async def auth_config() -> dict[str, Any]:
+    return {
+        "enabled": _auth_enabled(),
+        "domain": COGNITO_DOMAIN,
+        "issuer": COGNITO_ISSUER,
+        "client_id": COGNITO_CLIENT_ID,
+        "region": COGNITO_REGION,
+        "user_pool_id": COGNITO_USER_POOL_ID,
+    }
+
+
 class WorkflowListPage(BaseModel):
     workflows: list[WorkflowSummary]
     has_more: bool
@@ -150,6 +212,7 @@ class DeleteWorkflowsRequest(BaseModel):
 
 @app.get("/workflows", response_model=WorkflowListPage)
 async def get_workflows(
+    _admin: dict[str, Any] = Depends(require_admin),
     status: Optional[str] = Query(
         None, description="Filter by status (PENDING, SUCCESS, ERROR)"
     ),
@@ -180,6 +243,7 @@ async def get_workflows(
 
 @app.get("/queued-workflows", response_model=QueuedWorkflowListPage)
 async def get_queued_workflows(
+    _admin: dict[str, Any] = Depends(require_admin),
     queue_name: Optional[str] = Query(None, description="Filter by specific queue name"),
     limit: int = Query(50, ge=1, le=1000),
     offset: int = Query(0, ge=0),
@@ -206,14 +270,20 @@ async def get_queued_workflows(
 
 
 @app.post("/workflows/delete")
-async def delete_workflows(request: DeleteWorkflowsRequest):
+async def delete_workflows(
+    request: DeleteWorkflowsRequest,
+    _admin: dict[str, Any] = Depends(require_admin),
+):
     if not request.workflow_ids:
         raise HTTPException(status_code=422, detail="workflow_ids must not be empty")
     return await get_dashboard_client().delete_workflows(request.workflow_ids)
 
 
 @app.get("/workflows/{workflow_id}", response_model=WorkflowDetail)
-async def get_workflow_detail(workflow_id: str):
+async def get_workflow_detail(
+    workflow_id: str,
+    _admin: dict[str, Any] = Depends(require_admin),
+):
     """Return workflow info, enriched step history, and raw agent events."""
     wf, step_records, agent_events = await get_dashboard_client().get_workflow_detail_data(
         workflow_id
@@ -227,7 +297,10 @@ async def get_workflow_detail(workflow_id: str):
 
 
 @app.post("/workflows/{workflow_id}/resume")
-async def resume_workflow(workflow_id: str):
+async def resume_workflow(
+    workflow_id: str,
+    _admin: dict[str, Any] = Depends(require_admin),
+):
     client = get_dashboard_client()
     workflow = await client.get_workflow(workflow_id)
     if workflow is None:
@@ -240,12 +313,19 @@ async def resume_workflow(workflow_id: str):
 
 
 @app.post("/workflows/{workflow_id}/cancel")
-async def cancel_workflow(workflow_id: str):
+async def cancel_workflow(
+    workflow_id: str,
+    _admin: dict[str, Any] = Depends(require_admin),
+):
     return await get_dashboard_client().cancel_workflow(workflow_id)
 
 
 @app.post("/workflows/{workflow_id}/fork")
-async def fork_workflow(workflow_id: str, request: ForkWorkflowRequest):
+async def fork_workflow(
+    workflow_id: str,
+    request: ForkWorkflowRequest,
+    _admin: dict[str, Any] = Depends(require_admin),
+):
     if request.start_step < 1:
         raise HTTPException(status_code=422, detail="start_step must be >= 1")
     client = get_dashboard_client()
@@ -389,7 +469,9 @@ async def _fetch_litellm() -> Any:
 
 
 @app.get("/pricing")
-async def get_pricing() -> dict[str, Any]:
+async def get_pricing(
+    _admin: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
     if not DB_URL:
         raise HTTPException(status_code=500, detail="DB_URL not configured")
 

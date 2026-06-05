@@ -83,6 +83,32 @@ output "cloudfront_distribution_id" {
   value       = aws_cloudfront_distribution.main.id
 }
 
+# --- Cognito ---
+output "cognito_domain" {
+  description = "Cognito Hosted UI domain for Amber dashboard admin login"
+  value       = "https://${aws_cognito_user_pool_domain.dashboard_admin.domain}.auth.${var.region}.amazoncognito.com"
+}
+
+output "cognito_issuer" {
+  description = "Cognito OIDC issuer for dashboard JWT validation"
+  value       = "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.dashboard_admin.id}"
+}
+
+output "cognito_client_id" {
+  description = "Cognito SPA client ID for the Amber dashboard"
+  value       = aws_cognito_user_pool_client.dashboard_spa.id
+}
+
+output "cognito_region" {
+  description = "AWS region for the Cognito User Pool"
+  value       = var.region
+}
+
+output "cognito_user_pool_id" {
+  description = "Cognito User Pool ID for Amber dashboard admin users"
+  value       = aws_cognito_user_pool.dashboard_admin.id
+}
+
 # --- ECR ---
 output "ecr_dashboard_api_url" {
   description = "ECR repo URL for dashboard-api image"

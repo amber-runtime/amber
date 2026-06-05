@@ -19,6 +19,7 @@ dependencies = [
     "dbos-openai-agents>=0.3.0",
     "ddgs>=9.0",
     "httpx>=0.28.1",
+    "pyjwt[crypto]>=2.10.1",
     "pytest>=9.0.2",
 ]
 

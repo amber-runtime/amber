@@ -1,4 +1,6 @@
 import { NavLink } from 'react-router-dom'
+import { LogOut } from 'lucide-react'
+import { useAuth } from '../lib/auth'
 
 interface PageHeaderProps {
   actions?: React.ReactNode
@@ -7,6 +9,7 @@ interface PageHeaderProps {
 export const PAGE_CONTENT_WIDTH_CLASS = 'max-w-[1320px] mx-auto'
 
 export function PageHeader({ actions }: PageHeaderProps) {
+  const { authenticated, logout } = useAuth()
   const navClass = ({ isActive }: { isActive: boolean }) =>
     `text-sm font-medium px-1 pb-0.5 border-b-2 transition-colors ${
       isActive
@@ -25,7 +28,20 @@ export function PageHeader({ actions }: PageHeaderProps) {
             </NavLink>
           </nav>
         </div>
-        {actions && <div className="flex items-center gap-2">{actions}</div>}
+        <div className="flex items-center gap-2">
+          {actions}
+          {authenticated && (
+            <button
+              type="button"
+              aria-label="Sign out"
+              title="Sign out"
+              onClick={logout}
+              className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-700 text-slate-300 hover:border-slate-500 hover:text-slate-50"
+            >
+              <LogOut size={15} />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )

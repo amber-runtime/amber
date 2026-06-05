@@ -57,7 +57,7 @@ def prepare_control_plane() -> None:
     copy_tree(
         ROOT / "dashboard" / "backend",
         dashboard_pkg / "backend",
-        shutil.ignore_patterns("__pycache__", "*.pyc"),
+        shutil.ignore_patterns("__pycache__", "*.pyc", "test_*.py", "*_test.py"),
     )
     (dst / "pyproject.toml").write_text(
         """[project]
@@ -71,6 +71,7 @@ dependencies = [
     "psycopg2-binary>=2.9.12",
     "python-dotenv>=1.2.2",
     "pydantic>=2.13.3",
+    "pyjwt[crypto]>=2.10.1",
 ]
 
 [build-system]
@@ -90,6 +91,7 @@ def prepare_sdk() -> None:
     clean_dir(dst)
     out_dir = dst.resolve()
     run(["uv", "build", "--wheel", "--out-dir", str(out_dir)], cwd=ROOT / "sdk")
+    (dst / ".gitignore").unlink(missing_ok=True)
 
 
 def prepare_frontend() -> None:
@@ -97,7 +99,8 @@ def prepare_frontend() -> None:
     clean_dir(dst)
     frontend = ROOT / "dashboard" / "frontend"
     env = os.environ.copy()
-    env["VITE_API_BASE_URL"] = "/dashboard"
+    env["VITE_BASE_PATH"] = "/admin/"
+    env["VITE_API_BASE_URL"] = "/admin/api"
     run(["npm", "ci"], cwd=frontend, env=env)
     run(["npm", "run", "build"], cwd=frontend, env=env)
     copy_tree(frontend / "dist", dst)

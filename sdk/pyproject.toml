@@ -1,12 +1,30 @@
 [project]
 name = "amber-sdk"
-version = "0.1.0"
+version = "0.1.2"
+description = "Python SDK for defining durable Amber AI agent workflows"
+readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+authors = [
+    { name = "Amber" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "dbos==2.20.0",
     "dbos-openai-agents>=0.3.0",
     "psycopg2-binary>=2.9.12",
 ]
+
+[project.urls]
+Repository = "https://github.com/amber-runtime/amber"
 
 [build-system]
 requires = ["hatchling"]

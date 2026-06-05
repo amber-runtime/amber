@@ -14,6 +14,7 @@ import click
 from botocore.exceptions import ClientError
 from rich.console import Console
 
+from amber_cli.admin_access import print_admin_access_status
 from amber_cli.assets import asset_path
 from amber_cli.aws_auth import AWSAuthError, is_auth_client_error, print_auth_error
 from amber_cli.config_loader import (
@@ -22,6 +23,7 @@ from amber_cli.config_loader import (
     resolve_secret_path,
 )
 from amber_cli.preflight import run_deploy_preflight
+from amber_cli.routes import public_urls
 
 console = Console()
 
@@ -150,6 +152,13 @@ def _sync_terraform(tf_dir: Path) -> None:
         _copy_file(src, tf_dir / src.name)
 
 
+def _customer_frontend_mode(cfg) -> str:
+    """Terraform customer_frontend value: 'react' for an S3/CloudFront SPA."""
+    if cfg.frontend is not None and cfg.frontend.type == "react":
+        return "react"
+    return "server"
+
+
 def _write_tfvars(tf_dir: Path, cfg, image_tag: str) -> None:
     project_name = cfg.project_prefix or cfg.name
     prod = cfg.environment == "prod"
@@ -162,6 +171,7 @@ def _write_tfvars(tf_dir: Path, cfg, image_tag: str) -> None:
             f'asgi_app = "{cfg.app}"',
             f'worker_target = "{cfg.worker}"',
             f'path_prefix = "{cfg.path_prefix}"',
+            f'customer_frontend = "{_customer_frontend_mode(cfg)}"',
             f"frontend_bucket_force_destroy = {str(not prod).lower()}",
             f"secrets_force_destroy = {str(not prod).lower()}",
             f"db_multi_az = {str(prod).lower()}",
@@ -315,6 +325,79 @@ def _terraform_apply(
         raise SystemExit(1)
 
 
+CONTENT_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".json": "application/json",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".ico": "image/x-icon",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+}
+
+
+def _sync_dir_to_s3(s3, dist_dir: Path, bucket: str, key_prefix: str) -> set[str]:
+    """Upload every file under dist_dir to bucket/key_prefix; return the keys."""
+    seen: set[str] = set()
+    for root, _, files in os.walk(dist_dir):
+        for fname in files:
+            local_path = Path(root) / fname
+            key = f"{key_prefix}{local_path.relative_to(dist_dir).as_posix()}"
+            seen.add(key)
+            ext = local_path.suffix.lower()
+            extra_args = {"ContentType": CONTENT_TYPES[ext]} if ext in CONTENT_TYPES else {}
+            try:
+                s3.upload_file(str(local_path), bucket, key, ExtraArgs=extra_args)
+            except ClientError as exc:
+                _handle_aws_error(exc)
+            console.print(f"  uploaded: {key}")
+    return seen
+
+
+def _prune_stale_s3(
+    s3,
+    bucket: str,
+    seen: set[str],
+    *,
+    include_prefix: str = "",
+    exclude_prefixes: tuple[str, ...] = (),
+) -> None:
+    """Delete keys not in `seen` that are under include_prefix and not excluded."""
+    try:
+        paginator = s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=bucket):
+            stale = [
+                {"Key": obj["Key"]}
+                for obj in page.get("Contents", [])
+                if obj["Key"] not in seen
+                and obj["Key"].startswith(include_prefix)
+                and not any(obj["Key"].startswith(e) for e in exclude_prefixes)
+            ]
+            if stale:
+                s3.delete_objects(Bucket=bucket, Delete={"Objects": stale})
+    except ClientError as exc:
+        _handle_aws_error(exc)
+
+
+def _invalidate_cloudfront(session, dist_id: str, region: str) -> None:
+    if not dist_id:
+        return
+    try:
+        with console.status("  Invalidating CloudFront cache..."):
+            session.client("cloudfront", region_name=region).create_invalidation(
+                DistributionId=dist_id,
+                InvalidationBatch={
+                    "Paths": {"Quantity": 1, "Items": ["/*"]},
+                    "CallerReference": f"amber-cli-{int(time.time())}",
+                },
+            )
+    except ClientError as exc:
+        _handle_aws_error(exc)
+    console.print("  [green]CloudFront cache invalidated[/green]")
+
+
 def _sync_frontend(session, bucket: str, dist_id: str, region: str) -> None:
     dist_dir = asset_path("frontend", "dist")
     if not dist_dir.exists():
@@ -322,60 +405,65 @@ def _sync_frontend(session, bucket: str, dist_id: str, region: str) -> None:
         raise SystemExit(1)
 
     s3 = session.client("s3", region_name=region)
-    content_types = {
-        ".html": "text/html; charset=utf-8",
-        ".css": "text/css; charset=utf-8",
-        ".js": "application/javascript; charset=utf-8",
-        ".json": "application/json",
-        ".svg": "image/svg+xml",
-        ".png": "image/png",
-        ".ico": "image/x-icon",
-        ".woff": "font/woff",
-        ".woff2": "font/woff2",
-    }
+    with console.status("  Syncing admin frontend assets..."):
+        seen = _sync_dir_to_s3(s3, dist_dir, bucket, "admin/")
+    with console.status("  Removing stale admin assets..."):
+        _prune_stale_s3(s3, bucket, seen, include_prefix="admin/")
+    _invalidate_cloudfront(session, dist_id, region)
 
-    seen: set[str] = set()
-    with console.status("  Syncing frontend assets..."):
-        for root, _, files in os.walk(dist_dir):
-            for fname in files:
-                local_path = Path(root) / fname
-                key = str(local_path.relative_to(dist_dir))
-                seen.add(key)
-                ext = local_path.suffix.lower()
-                extra_args = {"ContentType": content_types[ext]} if ext in content_types else {}
-                try:
-                    s3.upload_file(str(local_path), bucket, key, ExtraArgs=extra_args)
-                except ClientError as exc:
-                    _handle_aws_error(exc)
-                console.print(f"  uploaded: {key}")
 
-    try:
-        with console.status("  Removing stale frontend assets..."):
-            paginator = s3.get_paginator("list_objects_v2")
-            for page in paginator.paginate(Bucket=bucket):
-                stale = [
-                    {"Key": obj["Key"]}
-                    for obj in page.get("Contents", [])
-                    if obj["Key"] not in seen
-                ]
-                if stale:
-                    s3.delete_objects(Bucket=bucket, Delete={"Objects": stale})
-    except ClientError as exc:
-        _handle_aws_error(exc)
+def _build_and_sync_customer_frontend(
+    session, repo_root: Path, cfg, bucket: str, dist_id: str, region: str
+) -> None:
+    """Build the customer React SPA in a node container and sync it to S3 root."""
+    fe = cfg.frontend
+    frontend_dir = (repo_root / fe.path).resolve()
+    dist_dir = frontend_dir / fe.output
 
-    if dist_id:
-        try:
-            with console.status("  Invalidating CloudFront cache..."):
-                session.client("cloudfront", region_name=region).create_invalidation(
-                    DistributionId=dist_id,
-                    InvalidationBatch={
-                        "Paths": {"Quantity": 1, "Items": ["/*"]},
-                        "CallerReference": f"amber-cli-{int(time.time())}",
-                    },
-                )
-        except ClientError as exc:
-            _handle_aws_error(exc)
-        console.print("  [green]CloudFront cache invalidated[/green]")
+    console.print(f"  [bold]Building React frontend ({fe.path})...[/bold]")
+    _docker_build_customer_frontend(frontend_dir, fe.build)
+    if not dist_dir.is_dir():
+        console.print(
+            f"[red]Frontend build did not produce {fe.output}/ in {frontend_dir}.[/red]"
+        )
+        raise SystemExit(1)
+
+    s3 = session.client("s3", region_name=region)
+    # Customer SPA lives at the bucket root; admin/ is owned by _sync_frontend.
+    with console.status("  Syncing customer frontend assets..."):
+        seen = _sync_dir_to_s3(s3, dist_dir, bucket, "")
+    with console.status("  Removing stale customer assets..."):
+        _prune_stale_s3(s3, bucket, seen, exclude_prefixes=("admin/",))
+    _invalidate_cloudfront(session, dist_id, region)
+
+
+def _docker_build_customer_frontend(frontend_dir: Path, build_command: str) -> None:
+    """Run `npm ci && <build>` in a throwaway node:20-slim container."""
+    uid_gid = None
+    if os.name == "posix":
+        uid_gid = f"{os.getuid()}:{os.getgid()}"
+    cmd = ["docker", "run", "--rm"]
+    if uid_gid:
+        cmd += ["-u", uid_gid]
+    cmd += [
+        "-v",
+        f"{frontend_dir}:/app",
+        "-w",
+        "/app",
+        "-e",
+        "VITE_BASE_PATH=/",
+        "-e",
+        "VITE_API_BASE_URL=/api",
+        "-e",
+        "npm_config_cache=/tmp/.npm",
+        "-e",
+        "HOME=/tmp",
+        "node:20-slim",
+        "sh",
+        "-c",
+        f"npm ci && {build_command}",
+    ]
+    subprocess.run(cmd, check=True)
 
 
 def _restart_ecs(session, cluster: str, services: list[str], region: str) -> None:
@@ -518,12 +606,13 @@ def deploy(env: str, no_build: bool, no_infra: bool, no_frontend: bool, service:
 
     if not no_frontend:
         console.print("[bold cyan]Step 4/5: Deploying frontend[/bold cyan]")
-        _sync_frontend(
-            session,
-            tf_out["frontend_bucket_name"],
-            tf_out.get("cloudfront_distribution_id", ""),
-            region,
-        )
+        bucket = tf_out["frontend_bucket_name"]
+        dist_id = tf_out.get("cloudfront_distribution_id", "")
+        _sync_frontend(session, bucket, dist_id, region)
+        if _customer_frontend_mode(cfg) == "react":
+            _build_and_sync_customer_frontend(
+                session, repo_root, cfg, bucket, dist_id, region
+            )
         console.print("[green]  Frontend deployed[/green]")
         console.print()
     else:
@@ -533,6 +622,9 @@ def deploy(env: str, no_build: bool, no_infra: bool, no_frontend: bool, service:
     cloudfront_domain = tf_out.get("cloudfront_domain", "")
     console.print("[bold green]Deploy complete![/bold green]")
     if cloudfront_domain:
-        console.print(f"  URL:       https://{cloudfront_domain}")
-        console.print(f"  Dashboard: https://{cloudfront_domain}/")
-        console.print(f"  API:       https://{cloudfront_domain}{cfg.path_prefix}/")
+        urls = public_urls(cloudfront_domain)
+        console.print(f"  Customer app:      {urls['customer_app']}")
+        console.print(f"  Amber admin:       {urls['amber_admin']}")
+        console.print(f"  Admin API health:  {urls['admin_api_health']}")
+    console.print()
+    print_admin_access_status(console, session, tf_out, region)

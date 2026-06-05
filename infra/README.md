@@ -10,45 +10,54 @@ frontend. The CLI owns those product deployment steps.
 ## Architecture
 
 ```
-                    CloudFront (HTTPS)
-                           |
-              +------------+------------+
-              |            |            |
-          / (root)   /dashboard/*    /api/*
-              |            |            |
-              v            v            v
-           S3 SPA        ALB ----------+
-         (React)           |     |
-                    +------+     +------+
-                    v                   v
-            dashboard-api:8001   customer-app:8003
-            (FastAPI + DBOS)     (FastAPI + DBOS + OpenAI Agents)
-                    |                   |
-                    |        customer-worker:8004
-                    |     (DBOS queue consumer)
-                    |                   |
-                    +---------+---------+
-                              v
-                          RDS Proxy
-                              |
-                              v
-                        RDS Postgres 16
+                         CloudFront (HTTPS)
+                                |
+        +-----------+-----------+-----------+----------------------+
+        |           |           |           |                      |
+   /admin/*   /admin/api/*   /api/*   default route (/ and /*)
+        |           |           |           |
+        v           v           v           +-- server: ALB -> customer-app:8003
+  S3 admin SPA     ALB         ALB          |
+        |           |           |           +-- react: S3 customer SPA
+        |           |           |
+        |           v           v
+        |   dashboard-api:8001  customer-app:8003
+        |      (FastAPI)   (FastAPI + DBOS + Agents)
+        |           |           |
+        v           v           v
+ Cognito Hosted UI Cognito JWTs DBOS workflow state
 
-                    customer-worker:8004
-                              |
-                              v
-                   CloudWatch Logs + Metrics
-               QueueBacklog / QueueActive / QueueOpen
+        ALB forwards only requests with CloudFront's X-Origin-Verify header.
+
+                         customer-worker:8004
+                      (private DBOS queue consumer)
+                                |
+                                v
+                            RDS Proxy
+                                |
+                                v
+                          RDS Postgres 16
+
+                         customer-worker metrics
+                                |
+                                v
+                    CloudWatch Logs + Amber/Queues
+                 QueueBacklog / QueueActive / QueueOpen
+                                |
+                                v
+               Application Auto Scaling for customer-worker
 ```
 
 - **CloudFront** terminates HTTPS and routes by path prefix
-- **ALB** forwards `/dashboard/*` to the dashboard API and `/api/*` to the customer app
-- **S3** serves the React SPA for the root path
+- **ALB** forwards only CloudFront-originated traffic carrying `X-Origin-Verify`
+- **S3** serves the Amber admin React SPA under `/admin/*` and, when configured, a customer React SPA at `/`
+- **Cognito** handles Amber dashboard operator authentication
 - **ECS Fargate** runs the dashboard API, customer app, and customer worker
-- **customer-worker** drains the DBOS `agent-runs` queue
+- **customer-worker** is private, has no ALB route, and drains the DBOS `agent-runs` queue through Postgres-backed DBOS state
 - **RDS Proxy** pools ECS database connections before RDS
 - **RDS Postgres 16** stores DBOS state and dashboard data
 - **CloudWatch Logs + Metrics** receives worker queue observability metrics
+- **Application Auto Scaling** scales only the customer worker from `Amber/Queues` `QueueBacklog`
 
 ## Directory Layout
 
@@ -79,7 +88,9 @@ directory with `make cli-assets`.
 
 ## Manual Terraform Validation
 
-Use this flow when reviewing or debugging the Terraform template itself.
+The normal product path is `amber deploy` and `amber destroy`. Use Terraform
+commands in this directory only when reviewing, validating, or debugging the
+template itself.
 
 ```bash
 terraform -chdir=infra/terraform init
@@ -88,8 +99,9 @@ terraform -chdir=infra/terraform validate
 terraform -chdir=infra/terraform plan
 ```
 
-For manual Terraform testing, copy the example variables file and edit it for
-the disposable stack you are validating.
+For manual Terraform testing only, copy the example variables file and edit it
+for the disposable stack you are validating. Direct `terraform apply` does not
+run the product deploy pipeline.
 
 ```bash
 cp infra/terraform/terraform.tfvars.example infra/terraform/terraform.tfvars
@@ -103,12 +115,19 @@ users running `amber deploy` edit `amber.yaml`; the CLI generates
 
 ## Product Deploy Path
 
-The product path is:
+Product users should use the CLI, not direct Terraform:
 
 ```bash
 amber init
+amber config set openai-api-key
 $EDITOR amber.yaml
 amber deploy
+```
+
+To tear down resources created by the product path:
+
+```bash
+amber destroy
 ```
 
 `amber deploy` packages this Terraform template into `.amber/terraform/`, builds
@@ -156,9 +175,9 @@ amber config set openai-api-key
 amber deploy --no-build
 ```
 
-For manual Terraform testing, replace the placeholder SSM parameter after the
-first apply. The command reads the parameter name and region from Terraform
-outputs.
+For manual Terraform testing only, replace the placeholder SSM parameter after
+the first direct `terraform apply`. The command reads the parameter name and
+region from Terraform outputs.
 
 ```bash
 OPENAI_PARAMETER_NAME="$(terraform -chdir=infra/terraform output -raw openai_api_key_parameter_name)"
@@ -177,17 +196,16 @@ changing secret values.
 
 ## Teardown
 
-For manual Terraform testing:
+For product deployments:
+
+```bash
+amber destroy
+```
+
+For manual Terraform testing only:
 
 ```bash
 terraform -chdir=infra/terraform destroy
-```
-
-For `amber deploy` stacks today:
-
-```bash
-cd .amber/terraform
-terraform destroy
 ```
 
 CloudFront distribution deletion can take several minutes. Disposable dev

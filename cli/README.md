@@ -1,87 +1,97 @@
 # Amber CLI
+amber repository: [github link](https://github.com/amber-runtime/amber)
 
-> **Current package name: `amber-runtime`.**
-> This folder contains the CLI code. The team is still validating the final
-> package naming, but local product packaging uses `amber-runtime`: users install
-> the package, run the `amber` command, and write application code with
-> `from amber import ...` via the SDK dependency.
+Install `amber-runtime` to get the `amber` terminal command for deploying durable AI agents to your AWS.
 
-Deploy durable AI agents to customer-owned AWS with one product command:
+## Quickstart
 
-```bash
-amber deploy
-```
-
-## Product Flow
-
-Beta users install the built wheel, initialize a repo, review `amber.yaml`, and
-deploy.
+Install the package, initialize a repo, review `amber.yaml`, configure AWS and
+secrets, then deploy.
 
 ```bash
 pip install amber-runtime
 amber init
-$EDITOR amber.yaml
+
+# Review amber.yaml
+
 amber auth setup
 amber config set openai-api-key
 amber deploy
+amber admin create-user --email dev@example.com
 amber status
-amber destroy
 ```
+
+After setup, `amber deploy` runs the full deploy pipeline for your app, worker,
+dashboard, database, and AWS infrastructure.
+
+Create the first dashboard admin user after `amber deploy`; the command reads
+Terraform outputs from the deployed stack. Cognito sends the invite email with a
+temporary password for `/admin/`.
 
 `amber.yaml` is the user-facing deployment config. End users should not edit
 Terraform variables directly for the normal product path. During deploy, the CLI
 copies the bundled Terraform template into `.amber/terraform/` and generates
 `.amber/terraform/terraform.tfvars` from `amber.yaml`.
 
-```yaml
+```amber.yaml
 name: my-project
 
 app: my_app.main:app
 worker: my_app.main:agent_runtime
-path_prefix: /api
 environment: dev
 
 # Optional overrides:
 # region: us-east-1
 # profile: amber
 # dashboard: true
+# path_prefix: ""  # optional; server-rendered apps can serve / directly
 ```
 
 `environment: dev` keeps disposable defaults for local demos and testing.
 `environment: prod` uses safer Terraform defaults for buckets, secrets, and RDS,
-but still uses local Terraform state in this beta path.
+but still uses local Terraform state in this path.
 
-## Maintainer Flow
+### React frontend (optional)
 
-When changing the CLI package or bundled deploy assets, refresh assets before
-building a wheel.
+By default your application container owns `/` and serves its own UI (e.g. a
+server-rendered Jinja app). If your product UI is a React single-page app instead,
+keep it in a subdirectory with a `package.json` that declares `react`:
 
-```bash
-make cli-assets
-cd cli
-uv build
+```
+my-project/
+  my_app/        # FastAPI app + AgentRuntime
+  frontend/      # React SPA (package.json, vite.config.ts, src/, ...)
+  amber.yaml
 ```
 
-For a local product smoke test from this repo:
+`amber init` detects it and records a `frontend:` block:
 
-```bash
-make cli-assets
-uv run amber deploy
+```yaml
+frontend:
+  type: react
+  path: frontend       # frontend dir, relative to the repo root
+  build: npm run build
+  output: dist         # build output dir (vite -> dist, CRA -> build)
+path_prefix: /api      # required for react: your API is served under /api
 ```
 
-The packaged assets include Terraform, Docker templates, Docker entrypoints,
-the SDK wheel, and the dashboard frontend dist.
+When `frontend:` is configured, `amber deploy` builds the React SPA in a
+temporary `node:20` Docker container, so Docker is the only local build
+requirement. The built SPA is served from S3/CloudFront at `/`.
 
-For a near-product local packaging smoke test:
+Amber routes traffic by path:
 
-```bash
-AMBER_RUN_PACKAGE_SMOKE=1 uv run pytest cli/tests/test_local_package_smoke.py
-```
+- `/` serves your application.
+- `/api/*` reaches your FastAPI app. Amber strips the `/api` prefix, so
+  app routes are still written as `/runs`, `/health`, and so on.
+- `/admin/*` serves the Amber admin dashboard, which prompts admins to sign in with Cognito.
+- `/admin/api/*` serves the Cognito-protected Amber dashboard API.
 
-This builds local wheels, installs `amber-runtime` into a fresh virtualenv, runs
-`amber --help`, initializes a temporary customer repo, and confirms deploy
-preflight starts from the installed package. It does not publish anything to
-PyPI.
+React clients should call the app API at `/api/...`. The frontend build sets
+`VITE_BASE_PATH=/` and `VITE_API_BASE_URL=/api`.
+
+Amber does not add dashboard Cognito auth to your application `/api` routes. If those
+routes expose private data or mutations, enforce auth in your app.
 
 ## Deploy Pipeline
 
@@ -97,8 +107,8 @@ After preflight, `amber deploy` runs five steps:
 4. **Frontend** - sync bundled React dashboard assets to S3 and invalidate CloudFront
 5. **Summary** - print dashboard and API URLs
 
-Partial flags exist for development, but the supported full deploy path is
-`amber deploy`.
+Advanced deploy flags are available for development and troubleshooting, but the
+supported full deploy path is `amber deploy`.
 
 ```bash
 amber deploy --no-infra
@@ -115,11 +125,17 @@ amber deploy --service customer-app
 | `amber auth setup` | Configure AWS access for deploys |
 | `amber auth login` | Refresh the saved AWS SSO session |
 | `amber auth check` | Verify the configured AWS profile |
+| `amber admin create-user --email <email>` | Create a Cognito dashboard admin user |
+| `amber admin login` | Sign in for CLI workflow queries |
+| `amber admin logout` | Clear the cached CLI dashboard session |
 | `amber deploy` | Build and deploy to AWS |
 | `amber destroy` | Tear down deployed AWS resources |
 | `amber config list` | Show project info and secret status |
 | `amber config set <key>` | Set a secret in AWS |
 | `amber status` | Show ECS health and deployed URLs |
+| `amber workflows list` | List deployed workflows for scripts and coding agents |
+| `amber workflows queued` | List queued workflows for scripts and coding agents |
+| `amber workflows show <workflow_id>` | Show workflow details for scripts and coding agents |
 
 ## AWS Credentials
 
@@ -145,6 +161,31 @@ amber auth check
 
 `amber auth setup` writes the selected `profile` and `region` into `amber.yaml`.
 It never writes secrets into `amber.yaml`.
+
+## Workflow Visibility
+
+After deployment and first admin creation, sign in once for terminal workflow
+queries:
+
+```bash
+amber admin login
+amber workflows list
+amber workflows queued
+amber workflows show <workflow_id>
+```
+
+These commands read through the Cognito-protected dashboard API. Use `--json`
+with workflow commands when another script or coding agent should consume the
+raw response.
+
+Coding agents can run the same read-only commands after `amber admin login` to
+inspect deployed workflow state without direct AWS or database access:
+
+```bash
+amber workflows list --json
+amber workflows queued --json
+amber workflows show <workflow_id> --json
+```
 
 ## Secrets
 
@@ -181,7 +222,7 @@ Use `amber destroy --yes` for non-interactive cleanup. The command keeps local
 project config in `amber.yaml`; to fully reset local Amber config after
 destroying cloud resources, run `rm amber.yaml && rm -rf .amber`.
 
-Prod stacks require an explicit testing escape hatch:
+Destroying a prod stack requires an explicit confirmation flag:
 
 ```bash
 amber destroy --allow-prod-data-loss
@@ -192,7 +233,11 @@ of test prod stacks.
 
 ## Terraform State
 
-For this local/beta phase, Terraform state lives in
-`.amber/terraform/terraform.tfstate`. Keep `.amber/` around if you want the same
-machine to run future deploys or destroys. AWS-backed remote state is deferred
-until the production/multi-user deploy story is ready.
+Amber stores Terraform state in `.amber/terraform/terraform.tfstate` for the
+current project. Keep `.amber/` if you want this checkout to continue managing
+the same deployed AWS stack, including future deploys and destroys.
+
+If you delete `.amber/`, Amber loses the local Terraform state for that stack.
+Use `amber destroy` before removing it when you want Amber to clean up the AWS
+resources it created. Remote state support will be added when shared/team deploys
+need it.

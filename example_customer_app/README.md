@@ -15,8 +15,8 @@ In the launcher UI, enable `Fail deep scan on rate limit` to force the failure p
 ## Demo Flow
 
 1. Naive run: the email sends, then the deep scan fails.
-2. Fork 1: uncomment the `DEMO FORK 1` line in [user_agents/account_research_error_demo.py](/Users/Danny/repos/playground/example_customer_app/user_agents/account_research_error_demo.py:311) to log the real throttle cause.
-3. Fork 2: uncomment the `DEMO FORK 2` line in [user_agents/account_research_error_demo.py](/Users/Danny/repos/playground/example_customer_app/user_agents/account_research_error_demo.py:306) to add backoff so the forked run succeeds.
+2. Fork 1: uncomment the `DEMO FORK 1` line in [user_agents/account_research_error_demo.py](user_agents/account_research_error_demo.py) to log the real throttle cause.
+3. Fork 2: uncomment the `DEMO FORK 2` line in [user_agents/account_research_error_demo.py](user_agents/account_research_error_demo.py) to add backoff so the forked run succeeds.
 
 Notes:
 - restart the worker after changing a lever

@@ -18,7 +18,7 @@ region       = "us-east-1"
 # Customer app entrypoints. The CLI writes these from amber.yaml.
 asgi_app      = "example_customer_app.main:app"
 worker_target = "example_customer_app.main:agent_runtime"
-path_prefix   = "/api"
+path_prefix   = ""
 
 # The frontend S3 bucket is generated as:
 #   <project_name>-<environment>-<aws_account_id>-frontend

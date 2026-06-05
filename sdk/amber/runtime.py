@@ -38,11 +38,9 @@ class Runtime:
         *,
         name: str | None = None,
         db_url: str | None = None,
-        conductor_key: str | None = None,
     ) -> None:
         self.name = name
         self.db_url = db_url
-        self.conductor_key = conductor_key
 
     def start(
         self,
@@ -54,7 +52,6 @@ class Runtime:
             owner_id=id(self),
             name=self.name,
             db_url=self.db_url,
-            conductor_key=self.conductor_key,
             listen_queues=listen_queues,
             before_launch=before_launch,
         )
@@ -259,7 +256,6 @@ def _dbos_config(
     *,
     name: str | None = None,
     db_url: str | None = None,
-    conductor_key: str | None = None,
 ) -> DBOSConfig:
     resolved_name = name or os.environ.get(
         "CHECKPOINT_RUNTIME_NAME", "checkpoint-runtime"
@@ -267,18 +263,11 @@ def _dbos_config(
     resolved_db = (
         db_url or os.environ.get("DB_URL") or os.environ.get("DBOS_SYSTEM_DATABASE_URL")
     )
-    resolved_conductor_key = (
-        conductor_key
-        or os.environ.get("CHECKPOINT_CONDUCTOR_KEY")
-        or os.environ.get("DBOS_CONDUCTOR_KEY")
-    )
 
     config: DBOSConfig = {
         "name": resolved_name,
         "system_database_url": resolved_db,
     }
-    if resolved_conductor_key is not None:
-        config["conductor_key"] = resolved_conductor_key
 
     return config
 
@@ -288,7 +277,6 @@ def _start_dbos_runtime(
     owner_id: int | None = None,
     name: str | None = None,
     db_url: str | None = None,
-    conductor_key: str | None = None,
     listen_queues: list[str] | tuple[str, ...] | None = None,
     before_launch: Callable[[DBOSConfig], None] | None = None,
 ) -> None:
@@ -297,7 +285,6 @@ def _start_dbos_runtime(
     config = _dbos_config(
         name=name,
         db_url=db_url,
-        conductor_key=conductor_key,
     )
     resolved_db = config.get("system_database_url")
     if not isinstance(resolved_db, str) or not resolved_db.strip():

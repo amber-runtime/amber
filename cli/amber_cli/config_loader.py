@@ -8,6 +8,16 @@ import yaml
 
 
 @dataclass
+class FrontendConfig:
+    """Customer React SPA delivery settings from amber.yaml's `frontend:` block."""
+
+    type: str = ""  # "react" (empty = server-rendered app owns /)
+    path: str = ""  # frontend dir relative to repo root
+    build: str = "npm run build"
+    output: str = "dist"  # build output dir relative to `path`
+
+
+@dataclass
 class AmberConfig:
     """Represents an amber.yaml configuration."""
 
@@ -15,12 +25,13 @@ class AmberConfig:
     agents: list[str] = field(default_factory=list)
     app: str = ""
     worker: str = ""
-    path_prefix: str = "/api"
+    path_prefix: str = ""
     profile: str = ""
     region: str = "us-east-1"
     environment: str = "dev"
     dashboard: bool = True
     project_prefix: str = ""  # terraform project name, defaults to config name
+    frontend: FrontendConfig | None = None
 
     @property
     def prefix(self) -> str:
@@ -85,12 +96,25 @@ def load_config(start: str | None = None) -> AmberConfig:
         agents=raw.get("agents", []),
         app=raw.get("app", ""),
         worker=raw.get("worker", ""),
-        path_prefix=raw.get("path_prefix", "/api") or "/api",
+        path_prefix=raw.get("path_prefix", "") or "",
         profile=raw.get("profile", "") or "",
         region=raw.get("region", "us-east-1"),
         environment=raw.get("environment", "dev"),
         dashboard=raw.get("dashboard", True),
         project_prefix=raw.get("project_prefix", ""),
+        frontend=_parse_frontend(raw.get("frontend")),
+    )
+
+
+def _parse_frontend(raw: dict | None) -> FrontendConfig | None:
+    """Parse the optional `frontend:` block into a FrontendConfig."""
+    if not isinstance(raw, dict):
+        return None
+    return FrontendConfig(
+        type=raw.get("type", "") or "",
+        path=raw.get("path", "") or "",
+        build=raw.get("build", "") or "npm run build",
+        output=raw.get("output", "") or "dist",
     )
 
 
@@ -103,8 +127,29 @@ def validate_deploy_config(config: AmberConfig) -> list[str]:
         errors.append("app is required, for example: my_app.main:app")
     if not config.worker:
         errors.append("worker is required, for example: my_app.main:agent_runtime")
-    if not config.path_prefix.startswith("/"):
+    if config.path_prefix and not config.path_prefix.startswith("/"):
         errors.append("path_prefix must start with /")
+    errors.extend(_validate_frontend(config))
+    return errors
+
+
+def _validate_frontend(config: AmberConfig) -> list[str]:
+    fe = config.frontend
+    if fe is None or not fe.type:
+        return []
+    errors: list[str] = []
+    if fe.type != "react":
+        errors.append(
+            f"frontend.type {fe.type!r} is not supported (only 'react')."
+        )
+        return errors
+    if not fe.path:
+        errors.append("frontend.path is required when frontend.type is react.")
+    if config.path_prefix != "/api":
+        errors.append(
+            "frontend.type react requires path_prefix: /api "
+            "(the reserved customer API route)."
+        )
     return errors
 
 
