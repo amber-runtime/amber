@@ -22,6 +22,13 @@ CLI:
 pip install amber-sdk
 ```
 
+## DB URL
+
+Durable execution requires a Postgres database. Amber uses this database to store
+workflow state so queued runs, steps, and sleeps can recover cleanly after
+restarts. Set `DB_URL` in both the API and worker environments.
+
+
 ## Public API
 
 The package installs the `amber` Python module:
@@ -39,9 +46,20 @@ from amber import (
 )
 ```
 
-`AgentRuntime` is the high-level API and worker runtime for agent apps.
+`AgentRuntime` is the recommended entry point for agent applications. The API
+process uses it to enqueue agent runs, and the worker process uses it to execute
+those queued runs.
+
+`Runtime` is the lower-level lifecycle wrapper used by `AgentRuntime`. It starts
+the durable execution runtime with the configured name and database URL.
+
+`WorkerService` is the lower-level worker implementation used by
+`AgentRuntime.run_worker()`. Most apps should use `AgentRuntime`; construct
+`WorkerService` directly only when they need manual worker configuration.
+
 `@register_agent`, `@workflow`, and `@step` mark durable units of work, while
 `sleep` provides durable sleeps that recover cleanly after restarts.
+
 
 ## Application Shape
 
@@ -90,9 +108,6 @@ Run a worker process against the same `AgentRuntime` target:
 ```bash
 python -m amber.worker my_app.main:agent_runtime
 ```
-
-Durable execution requires a Postgres database for DBOS state. Set `DB_URL` in
-both the API and worker environments.
 
 ## Deploying
 

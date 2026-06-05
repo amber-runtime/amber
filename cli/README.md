@@ -1,8 +1,7 @@
 # Amber CLI
+amber repository: [github link](https://github.com/amber-runtime/amber)
 
-Install `amber-runtime` to get the `amber` command for deploying durable AI
-agents to customer-owned AWS. The package also installs `amber-sdk`, so your
-application code can define agents with `from amber import ...`.
+Install `amber-runtime` to get the `amber` terminal command for deploying durable AI agents to your AWS.
 
 ## Quickstart
 
@@ -54,7 +53,7 @@ but still uses local Terraform state in this path.
 
 ### React frontend (optional)
 
-By default the customer container owns `/` and serves its own UI (e.g. a
+By default your application container owns `/` and serves its own UI (e.g. a
 server-rendered Jinja app). If your product UI is a React single-page app instead,
 keep it in a subdirectory with a `package.json` that declares `react`:
 
@@ -82,8 +81,8 @@ requirement. The built SPA is served from S3/CloudFront at `/`.
 
 Amber routes traffic by path:
 
-- `/` serves the customer app or React SPA.
-- `/api/*` reaches the customer FastAPI app. Amber strips the `/api` prefix, so
+- `/` serves your application.
+- `/api/*` reaches your FastAPI app. Amber strips the `/api` prefix, so
   app routes are still written as `/runs`, `/health`, and so on.
 - `/admin/*` serves the Amber admin dashboard, which prompts admins to sign in with Cognito.
 - `/admin/api/*` serves the Cognito-protected Amber dashboard API.
@@ -91,7 +90,7 @@ Amber routes traffic by path:
 React clients should call the app API at `/api/...`. The frontend build sets
 `VITE_BASE_PATH=/` and `VITE_API_BASE_URL=/api`.
 
-Amber does not add dashboard Cognito auth to customer `/api` routes. If those
+Amber does not add dashboard Cognito auth to your application `/api` routes. If those
 routes expose private data or mutations, enforce auth in your app.
 
 ## Deploy Pipeline

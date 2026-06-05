@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "amber-runtime"
-version = "0.1.1"
+version = "0.1.2"
 description = "Deploy and operate durable AI agents in customer-owned AWS environments"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,7 +24,7 @@ classifiers = [
     "Topic :: System :: Systems Administration",
 ]
 dependencies = [
-    "amber-sdk>=0.1.1",
+    "amber-sdk>=0.1.2",
     "certifi>=2023.7.22",
     "click>=8.1",
     "rich>=13.0",

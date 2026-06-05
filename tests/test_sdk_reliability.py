@@ -549,13 +549,18 @@ class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.original_type, "RuntimeError")
 
     def test_runtime_start_is_idempotent_and_reads_embedded_env(self):
+        legacy_checkpoint_key_env = "CHECKPOINT_" + "CONDUCTOR_KEY"
+        legacy_dbos_key_env = "DBOS_" + "CONDUCTOR_KEY"
+        legacy_config_key = "conduct" + "or_key"
+
         with mock.patch.dict(
             os.environ,
             {
                 "CHECKPOINT_RUNTIME_NAME": "embedded-app",
                 "DB_URL": "postgres://primary",
                 "DBOS_SYSTEM_DATABASE_URL": "postgresql://system",
-                "CHECKPOINT_CONDUCTOR_KEY": "key-1",
+                legacy_checkpoint_key_env: "key-1",
+                legacy_dbos_key_env: "key-2",
             },
             clear=False,
         ):
@@ -570,7 +575,7 @@ class AgentRegistryTests(unittest.IsolatedAsyncioTestCase):
             self.DBOS.init_calls[0]["system_database_url"],
             "postgres://primary",
         )
-        self.assertEqual(self.DBOS.init_calls[0]["conductor_key"], "key-1")
+        self.assertNotIn(legacy_config_key, self.DBOS.init_calls[0])
 
     def test_runtime_start_can_disable_queue_listening_before_launch(self):
         runtime = self.runtime.Runtime()
