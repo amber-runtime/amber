@@ -1,7 +1,7 @@
 # Amber SDK
 
 `amber-sdk` is the Python library for defining durable Amber agent workflows in
-customer applications. It provides the runtime object used by API and worker
+your agent applications. It provides the runtime object used by API and worker
 processes, plus decorators for durable workflows and steps.
 
 ## Install
@@ -27,7 +27,6 @@ pip install amber-sdk
 Durable execution requires a Postgres database. Amber uses this database to store
 workflow state so queued runs, steps, and sleeps can recover cleanly after
 restarts. Set `DB_URL` in both the API and worker environments.
-
 
 ## Public API
 
@@ -59,7 +58,6 @@ the durable execution runtime with the configured name and database URL.
 
 `@register_agent`, `@workflow`, and `@step` mark durable units of work, while
 `sleep` provides durable sleeps that recover cleanly after restarts.
-
 
 ## Application Shape
 

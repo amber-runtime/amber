@@ -37,7 +37,7 @@ dependencies = [
 amber = "amber_cli.main:cli"
 
 [project.urls]
-Repository = "https://github.com/amber-runtime/playground"
+Repository = "https://github.com/amber-runtime/amber"
 
 [tool.setuptools]
 include-package-data = false

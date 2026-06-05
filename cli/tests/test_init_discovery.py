@@ -106,7 +106,7 @@ def test_init_writes_discovered_targets() -> None:
     assert "Discovered worker:" not in result.output
     assert "Review amber.yaml" in result.output
     assert "amber admin create-user --email <you@example.com>" in result.output
-    assert "github.com/amber-runtime/playground" not in config
+    assert "github.com/amber-runtime/amber" not in config
     assert (
         "# Used as the AWS resource prefix. Change this if you deploy multiple Amber apps\n"
         "# in the same AWS account/environment.\n"

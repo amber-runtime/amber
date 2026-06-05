@@ -1,262 +1,256 @@
-# Durable Execution Playground
+# Amber
 
-## Repo Structure
+Amber deploys durable AI agents to customer-owned AWS environments. It packages
+your FastAPI app, queue worker, dashboard, database, and cloud infrastructure
+behind one CLI workflow while keeping your application code in a normal Python
+project.
 
-This is a monorepo containing two publishable packages (`sdk/` and `cli/`) plus supporting infrastructure and a reference app. The root `pyproject.toml` (`amber-workspace`) is the uv workspace container — it is never published.
+Amber gives agent apps:
 
-### Publishable packages
+- Durable workflow execution with checkpointed steps and recoverable sleeps
+- Queue-first agent runs with separate API and worker processes
+- An operator dashboard protected by Cognito
+- AWS deployment with ECS, RDS/RDS Proxy, CloudFront, S3, ECR, SSM, and Secrets Manager
 
-#### `sdk/` → publishes as `amber-sdk` on PyPI
-The core runtime library. This is what customer agent apps import.
+## Quickstart
 
-```
-sdk/
-  amber/               ← Python module (import name is "amber", not "amber-sdk")
-    __init__.py        ← exports AgentRuntime, register_agent, step, sleep, etc.
-    runtime.py         ← AgentRuntime, WorkerService, AgentService
-    decorators.py      ← @register_agent, @step, @workflow, sleep
-    worker.py          ← entrypoint for python -m amber.worker
-    tracing.py
-    dashboard/         ← internal queries used by dashboard backend
-  pyproject.toml       ← name="amber-sdk"
-```
+Install the product package, initialize a repo, configure AWS and secrets, then
+deploy.
 
-How customers use it:
-```python
-from amber import AgentRuntime, register_agent, step, sleep
-```
 ```bash
-python -m amber.worker your_app.main:agent_runtime
-```
-
-#### `cli/` → local product package name `amber-runtime`
-The user-facing product package currently builds as `amber-runtime`. The final package naming is still a team decision, but the intended product shape is stable: installing the package delivers the `amber` CLI command and pulls in `amber-sdk` so application code can use `from amber import ...`. The folder is called `cli/` as a team abstraction; see `cli/README.md` for the full explanation.
-
-```
-cli/
-  amber_cli/           ← internal CLI module (users never import this)
-    main.py            ← click app entry point
-    commands/
-      init.py          ← amber init
-      deploy.py        ← amber deploy
-      config.py        ← amber config set/list
-      status.py        ← amber status
-    config_loader.py   ← amber.yaml parsing
-  pyproject.toml       ← name="amber-runtime", depends on amber-sdk
-```
-
-How customers use it:
-```bash
-pip install amber-runtime   # provisional local/product package name
+pip install amber-runtime
 amber init
+
+# Review amber.yaml
+
+amber auth setup
+amber config set openai-api-key
+amber deploy
+amber admin create-user --email dev@example.com
+amber status
+```
+
+`amber deploy` builds and deploys your application API, queue worker, Amber
+dashboard, database, and AWS infrastructure. Create the first dashboard admin
+user after `amber deploy`; the command reads Terraform outputs from the deployed
+stack and Cognito sends the invite email.
+
+For a complete runnable sample app, use
+[`amber-example-app`](https://github.com/amber-runtime/amber-example-app) once it
+is published and moved out of this repository.
+
+## How Amber Works
+
+Amber applications define one `AgentRuntime` in the app module. The API process
+uses that runtime to enqueue agent workflows quickly; the worker process loads
+the same runtime target and drains the durable DBOS queue.
+
+```python
+from fastapi import FastAPI
+from amber import AgentRuntime, register_agent, step
+
+agent_runtime = AgentRuntime(
+    agent_modules=["my_app.agents"],
+    queue_name="agent-runs",
+)
+
+app = FastAPI(lifespan=agent_runtime.api_lifespan())
+
+
+@step()
+async def draft_answer(prompt: str) -> str:
+    return f"Draft answer for: {prompt}"
+
+
+@register_agent(name="support-agent")
+async def support_agent(prompt: str) -> str:
+    return await draft_answer(prompt)
+
+
+@app.post("/runs")
+async def start_run(payload: dict[str, str]) -> dict[str, str]:
+    handle = await agent_runtime.agents.start(
+        "support-agent",
+        payload["input"],
+    )
+    return {"workflow_id": handle.workflow_id}
+```
+
+Run the API locally with your ASGI server:
+
+```bash
+uvicorn my_app.main:app
+```
+
+Run the worker against the same runtime target:
+
+```bash
+python -m amber.worker my_app.main:agent_runtime
+```
+
+Both processes need the same database URL. Use `DB_URL` as the public app
+environment variable; `DBOS_SYSTEM_DATABASE_URL` is still accepted by Amber
+internals for compatibility.
+
+## `amber.yaml`
+
+`amber init` writes the user-facing deploy config:
+
+```yaml
+name: my-project
+
+app: my_app.main:app
+worker: my_app.main:agent_runtime
+environment: dev
+
+# Optional overrides:
+# region: us-east-1
+# profile: amber
+# dashboard: true
+# path_prefix: ""
+```
+
+End users should edit `amber.yaml`, not Terraform variables. During deploy,
+Amber copies the bundled Terraform template into `.amber/terraform/` and
+generates `.amber/terraform/terraform.tfvars` from `amber.yaml`.
+
+`environment: dev` uses disposable defaults for demos and testing.
+`environment: prod` uses safer defaults for buckets, secrets, and RDS, but the
+current local/beta path still stores Terraform state in `.amber/terraform/`.
+
+## React Frontend
+
+By default your application container owns `/` and can serve its own UI. If your
+product UI is a React single-page app, keep it in a subdirectory with a
+`package.json` that declares `react`:
+
+```text
+my-project/
+  my_app/        # FastAPI app + AgentRuntime
+  frontend/      # React SPA
+  amber.yaml
+```
+
+`amber init` detects the frontend and records:
+
+```yaml
+frontend:
+  type: react
+  path: frontend
+  build: npm run build
+  output: dist
+path_prefix: /api
+```
+
+With a React frontend, Amber serves the built SPA from S3/CloudFront at `/` and
+routes your FastAPI app under `/api/*`. Amber strips `/api` before requests reach
+your app, so routes are still written as `/runs`, `/health`, and so on.
+
+Amber routes:
+
+- `/` serves your application UI or React SPA
+- `/api/*` reaches your FastAPI app
+- `/admin/*` serves the Amber dashboard
+- `/admin/api/*` serves the Cognito-protected dashboard API
+
+Amber does not add dashboard Cognito auth to your application `/api` routes. If
+those routes expose private data or mutations, enforce auth in your app.
+
+## Dashboard And Workflows
+
+After deployment, create an admin user:
+
+```bash
+amber admin create-user --email dev@example.com
+```
+
+The dashboard is served at `/admin/` and uses Cognito for operator sign-in.
+
+For terminal workflow visibility, sign in once and query through the same
+Cognito-protected dashboard API:
+
+```bash
+amber admin login
+amber workflows list
+amber workflows queued
+amber workflows show <workflow_id>
+```
+
+Use `--json` when another script or coding agent should consume the raw response.
+
+## Secrets
+
+The CLI manages deployment secrets in AWS:
+
+| Key | Store | Description |
+|-----|-------|-------------|
+| `openai-api-key` | SSM Parameter Store | OpenAI API key for LLM calls |
+| `db` | Secrets Manager | Database connection URL managed by Terraform |
+
+Set the OpenAI key before deploy:
+
+```bash
+amber config set openai-api-key
 amber deploy
 ```
 
-### Supporting directories (not published to PyPI)
+After a deployment is already running, rotate or replace the key with:
 
-| Directory | Purpose |
-|---|---|
-| `dashboard/` | Split dashboard app with `frontend/` React SPA and `backend/` FastAPI service for observing workflow runs |
-| `infra/` | Terraform, Docker, deploy scripts. Direction: scripts migrate into CLI; `infra/` becomes Terraform-only |
-| `example_customer_app/` | Reference FastAPI app showing how to wire up Amber. Used for integration testing and CLI development. Will move to its own repo as the public quickstart |
-| `tests/` | Integration and reliability tests |
+```bash
+amber config set openai-api-key
+amber deploy --no-build
+amber config list
+```
 
-### Key naming facts
+## Teardown
 
-- **`amber-runtime` depends on `amber-sdk`.** Publishing order matters: `amber-sdk` first, then `amber-runtime`.
-- **Local dev:** `uv sync` at repo root installs both packages as editable local installs from `sdk/` and `cli/`. No PyPI needed for development.
+Destroy the AWS resources created by `amber deploy`:
 
-### Maintainer Packaging Flow
+```bash
+amber destroy
+```
 
-When changing the CLI package or bundled deploy assets, refresh assets before
-building a wheel.
+Use `amber destroy --yes` for non-interactive cleanup. The command keeps local
+project config in `amber.yaml`; to fully reset local Amber config after
+destroying cloud resources, remove `amber.yaml` and `.amber/`.
+
+Destroying a prod stack requires an explicit confirmation flag:
+
+```bash
+amber destroy --allow-prod-data-loss
+```
+
+## Development
+
+This repository contains the Amber SDK, CLI, dashboard, infrastructure template,
+and tests. Product users should start with the quickstart above; maintainers can
+use the package-specific READMEs for deeper implementation details:
+
+- [`cli/README.md`](cli/README.md) - CLI commands, deploy pipeline, auth, and state
+- [`sdk/README.md`](sdk/README.md) - Python SDK API and application shape
+- [`infra/README.md`](infra/README.md) - Terraform template and AWS architecture
+
+Local development uses the root `uv` workspace:
+
+```bash
+uv sync
+```
+
+The publishable package names are:
+
+- `amber-sdk` - Python library installed as the `amber` module
+- `amber-runtime` - product package that installs the `amber` CLI and depends on `amber-sdk`
+
+When changing CLI bundled deploy assets, refresh and rebuild the local
+wheelhouse:
 
 ```bash
 make cli-assets
 make cli-wheelhouse
 ```
 
-The packaged CLI assets include Terraform, Docker templates, Docker entrypoints,
-the SDK wheel, and the dashboard frontend dist.
-
 For a near-product local packaging smoke test:
 
 ```bash
 AMBER_RUN_PACKAGE_SMOKE=1 uv run pytest cli/tests/test_local_package_smoke.py
-```
-
-This builds local wheels, installs `amber-runtime` into a fresh virtualenv, runs
-`amber --help`, initializes a temporary customer repo, and confirms deploy
-preflight starts from the installed package. It does not publish anything to
-PyPI.
-
-For release validation, publish `amber-sdk` first and then `amber-runtime` to
-TestPyPI. Install from TestPyPI with real PyPI as the dependency fallback:
-
-```bash
-pip install \
-  --index-url https://test.pypi.org/simple/ \
-  --extra-index-url https://pypi.org/simple/ \
-  amber-runtime
-```
-
----
-
-**Current public API:**
-
-```python
-from amber import AgentRuntime, register_agent, workflow, step, sleep, agent_runner
-```
-
-| Function | What it does |
-|---|---|
-| `AgentRuntime` | Configure the API runtime, queue settings, and worker startup for registered agents |
-| `@register_agent(name=...)` | Register a durable agent workflow; normal starts are queued by default |
-| `@workflow()` | Mark a function as a durable workflow |
-| `@step()` | Mark a function as a checkpointed step |
-| `sleep(seconds)` | Durable sleep — skips elapsed time on crash recovery |
-| `agent_runner(agent, prompt)` | Run an OpenAI Agents SDK agent through DBOS |
-
-Agent workflows are registered when their modules are imported. In an app,
-import the modules that define `@register_agent` workflows during startup.
-
-## Queue-First Agents
-
-Registered agents are queued by default. The API process submits work and returns
-quickly; a worker process drains the DBOS queue and executes workflows. Use a
-single `AgentRuntime` object in the app module so the API and worker roles share
-the same queue configuration.
-
-```python
-from fastapi import FastAPI
-from amber import AgentRuntime
-
-from .user_agents import research_agent, travel_concierge
-
-agent_runtime = AgentRuntime(
-    queue_name="agent-runs",
-    worker_concurrency=8,
-    queue_concurrency=None,
-)
-
-app = FastAPI(lifespan=agent_runtime.api_lifespan())
-agents = agent_runtime.agents
-
-handle = await agents.start("research-handoff-agent", user_input)
-return {"workflow_id": handle.workflow_id}
-```
-
-The API process launches DBOS with queue listeners disabled. The worker process
-loads the same `AgentRuntime` object and listens to `agent-runs`.
-
-`worker_concurrency` limits how many workflows each worker process runs at once.
-It defaults to `4`. `queue_concurrency` is optional and unset by default; set it
-when you need a global cap across all workers. Worker count itself is
-deployment-owned: for ECS/Fargate, Terraform or Application Auto Scaling
-controls how many worker tasks are running.
-
-Effective parallelism is:
-
-```text
-min(worker_count * worker_concurrency, global_concurrency)
-```
-
-### Local Queue Demo
-
-Use a DBOS database both processes can reach, then start the API:
-
-```bash
-uv run uvicorn example_customer_app.main:app --port 8003
-```
-
-Start the queue worker in another terminal:
-
-```bash
-uv run python -m amber.worker example_customer_app.main:agent_runtime
-```
-
-The API process launches DBOS with user queue listeners disabled. The worker
-process launches its own DBOS runtime and listens to `agent-runs`.
-
-Submit queued work:
-
-```bash
-curl -X POST 'http://localhost:8003/runs' \
-  -H 'Content-Type: application/json' \
-  -d '{"agent":"research-handoff-agent","input":"Prepare a research memo on AI dispatch copilots."}'
-```
-
-Poll the returned workflow ID:
-
-```bash
-curl 'http://localhost:8003/runs/<workflow_id>'
-```
-
-To test backlog behavior, stop the worker, submit a burst of queued runs, then
-restart the worker and confirm the runs drain:
-
-```bash
-for i in {1..20}; do
-  curl -s -X POST 'http://localhost:8003/runs' \
-    -H 'Content-Type: application/json' \
-    -d "{\"agent\":\"research-handoff-agent\",\"input\":\"Local queue test $i\"}" &
-done
-wait
-```
-
-For repeatable local queue load testing with k6 and a DBOS drain reporter, see
-[`tests/load_testing/README.md`](tests/load_testing/README.md).
-
-### AWS/Staging Contract
-
-The SDK does not create AWS infrastructure. The deployment contract is:
-
-- API service runs the FastAPI app, for example `uvicorn example_customer_app.main:app`.
-- Worker service runs `python -m amber.worker example_customer_app.main:agent_runtime`.
-- API and worker use the same code image/version.
-- API and worker use the same `DBOS_SYSTEM_DATABASE_URL` or `DB_URL`.
-- API and worker import the same registered workflow modules so DBOS application versions match.
-- API runtime disables user queue listeners; worker runtime listens to `agent-runs`.
-- ECS/Terraform controls worker task count, CloudWatch metrics, alarms, and autoscaling.
-
-For a first AWS validation, submit a manual burst of queued runs and watch the
-CloudWatch/ECS metrics: API enqueue latency, queue backlog, worker task count,
-worker logs, completed workflows, and backlog drain time.
-
-**Writing a new test:**
-
-```python
-from amber import Runtime, workflow, step
-
-@step()
-def call_external_api():
-    # anything with side effects goes in a step
-    ...
-
-@workflow()
-def my_workflow():
-    result = call_external_api()
-    return result
-
-if __name__ == "__main__":
-    runtime = Runtime(name="my-test")
-    runtime.start()
-    my_workflow()
-```
-
-
-## Using Postgres (optional)
-
-By default the SDK uses SQLite, which is fine for local development. To use Postgres:
-
-```bash
-export CHECKPOINT_DB_URL=postgresql://user:password@localhost:5432/mydb
-uv run python tests/event_booking.py
-```
-
-Or pass it directly:
-
-```python
-runtime = Runtime(name="my-app", db_url="postgresql://...")
-runtime.start()
 ```

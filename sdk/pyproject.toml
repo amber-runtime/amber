@@ -24,7 +24,7 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/amber-runtime/playground"
+Repository = "https://github.com/amber-runtime/amber"
 
 [build-system]
 requires = ["hatchling"]
