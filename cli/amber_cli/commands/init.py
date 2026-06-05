@@ -9,11 +9,22 @@ from amber_cli.config_loader import find_config_path
 from amber_cli.discovery import AppCandidate, discover_app_candidates
 
 
+AMBER_ORANGE = "\033[38;5;208m"
+RESET = "\033[0m"
+
+
+def _print_banner() -> None:
+    banner = (Path(__file__).parent.parent / "assets" / "banner.txt").read_text()
+    click.echo(f"{AMBER_ORANGE}{banner}{RESET}")
+
+
 @click.command()
 @click.option("--name", help="Project name (default: directory name)")
 @click.option("--directory", default=".", help="Directory to initialize")
 def init(name: str, directory: str) -> None:
     """Initialize a new Amber agent project."""
+    _print_banner()
+
     target = Path(directory).resolve()
     config_path = target / "amber.yaml"
 

@@ -25,5 +25,6 @@ include = ["amber_cli*"]
 
 [tool.setuptools.package-data]
 amber_cli = [
+    "assets/*",
     "assets/**/*",
 ]
