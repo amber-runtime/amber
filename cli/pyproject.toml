@@ -50,5 +50,6 @@ namespaces = false
 
 [tool.setuptools.package-data]
 amber_cli = [
+    "assets/docker/.dockerignore",
     "assets/**/*",
 ]

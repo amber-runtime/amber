@@ -66,6 +66,40 @@ amber deploy
 - **`amber-runtime` depends on `amber-sdk`.** Publishing order matters: `amber-sdk` first, then `amber-runtime`.
 - **Local dev:** `uv sync` at repo root installs both packages as editable local installs from `sdk/` and `cli/`. No PyPI needed for development.
 
+### Maintainer Packaging Flow
+
+When changing the CLI package or bundled deploy assets, refresh assets before
+building a wheel.
+
+```bash
+make cli-assets
+make cli-wheelhouse
+```
+
+The packaged CLI assets include Terraform, Docker templates, Docker entrypoints,
+the SDK wheel, and the dashboard frontend dist.
+
+For a near-product local packaging smoke test:
+
+```bash
+AMBER_RUN_PACKAGE_SMOKE=1 uv run pytest cli/tests/test_local_package_smoke.py
+```
+
+This builds local wheels, installs `amber-runtime` into a fresh virtualenv, runs
+`amber --help`, initializes a temporary customer repo, and confirms deploy
+preflight starts from the installed package. It does not publish anything to
+PyPI.
+
+For release validation, publish `amber-sdk` first and then `amber-runtime` to
+TestPyPI. Install from TestPyPI with real PyPI as the dependency fallback:
+
+```bash
+pip install \
+  --index-url https://test.pypi.org/simple/ \
+  --extra-index-url https://pypi.org/simple/ \
+  amber-runtime
+```
+
 ---
 
 **Current public API:**

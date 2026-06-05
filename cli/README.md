@@ -19,7 +19,9 @@ deploy.
 ```bash
 pip install amber-runtime
 amber init
-$EDITOR amber.yaml
+
+# Review amber.yaml
+
 amber auth setup
 amber config set openai-api-key
 amber deploy
@@ -52,7 +54,7 @@ environment: dev
 
 `environment: dev` keeps disposable defaults for local demos and testing.
 `environment: prod` uses safer Terraform defaults for buckets, secrets, and RDS,
-but still uses local Terraform state in this beta path.
+but still uses local Terraform state in this path.
 
 ### React frontend (optional)
 
@@ -99,47 +101,6 @@ Amber does not automatically wrap the developer app's `/api` routes in dashboard
 Cognito auth, because many customer apps need public endpoints. If your `/api`
 routes expose private data or mutations, enforce auth inside your app.
 
-## Maintainer Flow
-
-When changing the CLI package or bundled deploy assets, refresh assets before
-building a wheel.
-
-```bash
-make cli-assets
-make cli-wheelhouse
-```
-
-For a local product smoke test from this repo:
-
-```bash
-make cli-assets
-uv run amber deploy
-```
-
-The packaged assets include Terraform, Docker templates, Docker entrypoints,
-the SDK wheel, and the dashboard frontend dist.
-
-For a near-product local packaging smoke test:
-
-```bash
-AMBER_RUN_PACKAGE_SMOKE=1 uv run pytest cli/tests/test_local_package_smoke.py
-```
-
-This builds local wheels, installs `amber-runtime` into a fresh virtualenv, runs
-`amber --help`, initializes a temporary customer repo, and confirms deploy
-preflight starts from the installed package. It does not publish anything to
-PyPI.
-
-For release validation, publish `amber-sdk` first and then `amber-runtime` to
-TestPyPI. Install from TestPyPI with real PyPI as the dependency fallback:
-
-```bash
-pip install \
-  --index-url https://test.pypi.org/simple/ \
-  --extra-index-url https://pypi.org/simple/ \
-  amber-runtime
-```
-
 ## Deploy Pipeline
 
 `amber deploy` runs a preflight before mutating AWS. It validates `amber.yaml`,
@@ -180,9 +141,9 @@ amber deploy --service customer-app
 | `amber config list` | Show project info and secret status |
 | `amber config set <key>` | Set a secret in AWS |
 | `amber status` | Show ECS health and deployed URLs |
-| `amber workflows list` | List deployed workflows |
-| `amber workflows queued` | List queued workflows |
-| `amber workflows show <workflow_id>` | Show workflow summary, steps, and events |
+| `amber workflows list` | List deployed workflows for scripts/agents |
+| `amber workflows queued` | List queued workflows for scripts/agents |
+| `amber workflows show <workflow_id>` | Show workflow details for scripts/agents |
 
 ## AWS Credentials
 
@@ -224,6 +185,15 @@ amber workflows show <workflow_id>
 These commands read through the Cognito-protected dashboard API. Use `--json`
 with workflow commands when another script or coding agent should consume the
 raw response.
+
+Coding agents can run the same read-only commands after `amber admin login` to
+inspect deployed workflow state without direct AWS or database access:
+
+```bash
+amber workflows list --json
+amber workflows queued --json
+amber workflows show <workflow_id> --json
+```
 
 ## Secrets
 

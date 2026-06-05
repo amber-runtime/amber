@@ -60,7 +60,7 @@ def _fmt_ts(value: Any) -> str:
 
 @click.group()
 def workflows() -> None:
-    """Query deployed workflow data (requires 'amber admin login')."""
+    """Query workflow data for scripts and agents (requires 'amber admin login')."""
 
 
 @workflows.command("list")
