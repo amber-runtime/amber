@@ -1,1 +1,2 @@
 recursive-include amber_cli/assets *
+include build_validation.py

@@ -1,5 +1,5 @@
 # Amber CLI
-amber repository: [github link](https://github.com/amber-runtime/amber)
+amber repository: https://github.com/amber-runtime/amber
 
 Install `amber-runtime` to get the `amber` terminal command for deploying durable AI agents to your AWS.
 
