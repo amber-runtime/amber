@@ -1,6 +1,6 @@
 [project]
 name = "amber-sdk"
-version = "0.1.2"
+version = "0.1.3"
 description = "Python SDK for defining durable Amber AI agent workflows"
 readme = "README.md"
 requires-python = ">=3.11"

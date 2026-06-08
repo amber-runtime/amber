@@ -13,16 +13,6 @@ from amber_cli.discovery import (
     discover_frontend_candidates,
 )
 
-AMBER_INIT_BANNER = """    _    __  __ ____  _____ ____
-   / \\  |  \\/  | __ )| ____|  _ \\
-  / _ \\ | |\\/| |  _ \\|  _| | |_) |
- / ___ \\| |  | | |_) | |___|  _ <
-/_/   \\_\\_|  |_|____/|_____|_| \\_\\"""
-
-AMBER_ORANGE_ANSI = "\033[38;5;214m"
-ANSI_RESET = "\033[0m"
-
-
 AMBER_ORANGE = "\033[38;5;208m"
 RESET = "\033[0m"
 
@@ -37,7 +27,6 @@ def _print_banner() -> None:
 @click.option("--directory", default=".", help="Directory to initialize")
 def init(name: str, directory: str) -> None:
     """Initialize a new Amber agent project."""
-    _print_banner()
 
     target = Path(directory).resolve()
     config_path = target / "amber.yaml"
@@ -51,10 +40,12 @@ def init(name: str, directory: str) -> None:
 
     candidate = _select_candidate(discover_app_candidates(target))
     app_target = candidate.app_target if candidate else "my_app.main:app"
-    worker_target = candidate.worker_target if candidate else "my_app.main:agent_runtime"
+    worker_target = (
+        candidate.worker_target if candidate else "my_app.main:agent_runtime"
+    )
     frontend = _select_frontend(discover_frontend_candidates(target))
     environment = _prompt_environment()
-    _print_init_banner()
+    _print_banner()
 
     config_content = f"""# Amber Runtime configuration
 # Used as the AWS resource prefix. Change this if you deploy multiple Amber apps
@@ -112,15 +103,9 @@ environment: {environment}
     click.echo("  2. Configure AWS access: amber auth setup")
     click.echo("  3. Set your API key:  amber config set openai-api-key")
     click.echo("  4. Deploy:            amber deploy")
-    click.echo("  5. Create admin user: amber admin create-user --email <you@example.com>")
-
-
-def _print_init_banner() -> None:
-    if click.get_text_stream("stdout").isatty():
-        click.echo(f"{AMBER_ORANGE_ANSI}{AMBER_INIT_BANNER}{ANSI_RESET}")
-    else:
-        click.echo(AMBER_INIT_BANNER)
-    click.echo()
+    click.echo(
+        "  5. Create admin user: amber admin create-user --email <you@example.com>"
+    )
 
 
 def _select_candidate(candidates: list[AppCandidate]) -> AppCandidate | None:
