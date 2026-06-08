@@ -84,7 +84,6 @@ from fastapi import FastAPI
 from amber import AgentRuntime, register_agent, step
 
 agent_runtime = AgentRuntime(
-    agent_modules=["my_app.agents"],
     queue_name="agent-runs",
 )
 
@@ -109,6 +108,8 @@ async def start_run(payload: dict[str, str]) -> dict[str, str]:
     )
     return {"workflow_id": handle.workflow_id}
 ```
+
+For more details on how amber works please look at [`sdk/README.md`](sdk/README.md).
 
 Run the API locally with your ASGI server:
 
@@ -269,7 +270,7 @@ Local development uses the root `uv` workspace:
 uv sync
 ```
 
-The publishable package names are:
+The published package names are:
 
 - `amber-sdk` - Python library installed as the `amber` module
-- `amber-runtime` - product package that installs the `amber` CLI and depends on `amber-sdk`
+- `amber-runtime` - Product package that installs the `amber` CLI and depends on `amber-sdk`
