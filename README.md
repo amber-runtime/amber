@@ -12,6 +12,40 @@ Amber gives agent apps:
 - An operator dashboard protected by Cognito
 - AWS deployment with ECS, RDS/RDS Proxy, CloudFront, S3, ECR, SSM, and Secrets Manager
 
+## Architecture At A Glance
+
+Amber deploys your agent app into your AWS account with a managed runtime shape:
+
+```text
+Users / Operators
+      |
+      v
+CloudFront
+  |-- /              -> Customer UI or app server
+  |-- /api/*         -> Customer FastAPI app on ECS
+  |-- /admin/*       -> Amber dashboard SPA on S3
+  |-- /admin/api/*   -> Amber dashboard API on ECS
+                           |
+                           v
+                     Cognito-protected
+                     operator access
+
+ECS Fargate
+  |-- customer-app    -> FastAPI + AgentRuntime
+  |-- customer-worker -> private queue worker
+  |-- dashboard-api   -> workflow visibility + admin API
+
+Data + Operations
+  |-- RDS Proxy + Postgres       -> durable workflow state
+  |-- SSM / Secrets Manager      -> app and database secrets
+  |-- CloudWatch Metrics         -> queue observability
+  |-- Application Auto Scaling   -> worker scaling
+```
+
+Your app owns its public routes. Amber adds the dashboard, queue worker,
+database, secrets, and AWS infrastructure around it. For the full Terraform
+resource map, see [`infra/README.md`](infra/README.md).
+
 ## Quickstart
 
 Install the product package, initialize a repo, configure AWS and secrets, then
@@ -43,7 +77,7 @@ is published and moved out of this repository.
 
 Amber applications define one `AgentRuntime` in the app module. The API process
 uses that runtime to enqueue agent workflows quickly; the worker process loads
-the same runtime target and drains the durable DBOS queue.
+the same runtime target and drains the durable queue.
 
 ```python
 from fastapi import FastAPI
@@ -89,8 +123,7 @@ python -m amber.worker my_app.main:agent_runtime
 ```
 
 Both processes need the same database URL. Use `DB_URL` as the public app
-environment variable; `DBOS_SYSTEM_DATABASE_URL` is still accepted by Amber
-internals for compatibility.
+environment variable.
 
 ## `amber.yaml`
 
@@ -223,8 +256,8 @@ amber destroy --allow-prod-data-loss
 ## Development
 
 This repository contains the Amber SDK, CLI, dashboard, infrastructure template,
-and tests. Product users should start with the quickstart above; maintainers can
-use the package-specific READMEs for deeper implementation details:
+and tests. Product users should start with the quickstart above and if you want
+more details you can use the package-specific READMEs for deeper implementation details:
 
 - [`cli/README.md`](cli/README.md) - CLI commands, deploy pipeline, auth, and state
 - [`sdk/README.md`](sdk/README.md) - Python SDK API and application shape
@@ -240,17 +273,3 @@ The publishable package names are:
 
 - `amber-sdk` - Python library installed as the `amber` module
 - `amber-runtime` - product package that installs the `amber` CLI and depends on `amber-sdk`
-
-When changing CLI bundled deploy assets, refresh and rebuild the local
-wheelhouse:
-
-```bash
-make cli-assets
-make cli-wheelhouse
-```
-
-For a near-product local packaging smoke test:
-
-```bash
-AMBER_RUN_PACKAGE_SMOKE=1 uv run pytest cli/tests/test_local_package_smoke.py
-```

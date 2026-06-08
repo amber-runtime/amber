@@ -19,7 +19,7 @@ members = [
 
 [[package]]
 name = "amber-runtime"
-version = "0.1.2"
+version = "0.1.1"
 source = { editable = "cli" }
 dependencies = [
     { name = "amber-sdk" },
@@ -44,7 +44,7 @@ requires-dist = [
 
 [[package]]
 name = "amber-sdk"
-version = "0.1.2"
+version = "0.1.1"
 source = { editable = "sdk" }
 dependencies = [
     { name = "dbos" },

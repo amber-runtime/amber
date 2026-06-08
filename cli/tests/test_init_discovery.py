@@ -11,7 +11,12 @@ from amber_cli.discovery import (
     discover_frontend_candidates,
 )
 
-AMBER_BANNER_LINE = "    _    __  __ ____  _____ ____"
+AMBER_BANNER_PATH = Path(__file__).parents[1] / "amber_cli" / "assets" / "banner.txt"
+AMBER_BANNER_LINE = next(
+    line
+    for line in AMBER_BANNER_PATH.read_text(encoding="utf-8").splitlines()
+    if line.strip()
+)
 
 
 def write_package_json(

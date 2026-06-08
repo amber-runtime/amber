@@ -9,6 +9,8 @@ cli/build/
 .agents
 *.sqlite
 amber.yaml
+.pytest_cache
+.uv-cache
 
 # Node
 node_modules/
