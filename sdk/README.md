@@ -47,22 +47,72 @@ from amber import (
 process uses it to enqueue agent runs, and the worker process uses it to execute
 those queued runs.
 
-`agent_runner` runs OpenAI Agents SDK agents inside Amber workflows. Use it from
-registered agents or workflow/step code when invoking an OpenAI agent. Amber
-wraps the call so agent execution fits the same durable workflow model as the
-rest of the app.
+`agent_runner` runs OpenAI Agents SDK agents inside Amber workflows. Use it
+inside registered agents so agent calls are tracked as part of the durable
+workflow and can recover cleanly after restarts.
 
-`@register_agent`, `@workflow`, and `@step` mark durable units of work, while
-`sleep` provides durable sleeps that recover cleanly after restarts.
+`@register_agent` creates a named durable agent workflow that
+`AgentRuntime.agents.start(...)` can enqueue. `@workflow` defines general
+durable workflows, `@step` marks retryable units inside workflows, and `sleep`
+provides durable sleep that recover cleanly after restarts.
 
 ## Application Shape
 
 Amber applications define a normal Python app and an agent runtime target, then
 deploy with the `amber` CLI.
 
+This example uses FastAPI for the app server and `ddgs` for a sample search
+tool; install those separately if your app uses them.
+
 ```python
+from agents import Agent, function_tool
+from ddgs import DDGS
 from fastapi import FastAPI
-from amber import AgentRuntime, register_agent, step
+
+from amber import AgentRuntime, agent_runner, register_agent, step
+
+
+@function_tool
+@step()
+def search_web(query: str) -> str:
+    """Search the web for information about a topic. Returns titles, URLs, and summaries."""
+    with DDGS() as ddgs:
+        results = list(ddgs.text(query, max_results=5))
+
+    if not results:
+        return "No results found."
+
+    formatted = []
+    for result in results:
+        formatted.append(
+            f"Title: {result['title']}\n"
+            f"URL: {result['href']}\n"
+            f"Summary: {result['body']}"
+        )
+
+    return "\n---\n".join(formatted)
+
+
+research_agent = Agent(
+    name="research-assistant",
+    instructions="""You are a research assistant. Given a topic:
+1. Search for information using search_web
+2. Evaluate whether you have enough to write a thorough summary
+3. If not, search again with a more specific or different query
+4. Search at least twice before concluding
+5. Synthesize findings into a clear, well-structured summary
+Be explicit about what you found and what remains uncertain.""",
+    tools=[search_web],
+)
+
+
+@register_agent(name="research-assistant")
+async def research(topic: str) -> str:
+    result = await agent_runner(
+        starting_agent=research_agent,
+        input=f"Research this topic thoroughly: {topic}",
+    )
+    return str(result.final_output)
 
 agent_runtime = AgentRuntime(
     queue_name="agent-runs",
@@ -70,21 +120,10 @@ agent_runtime = AgentRuntime(
 
 app = FastAPI(lifespan=agent_runtime.api_lifespan())
 
-
-@step()
-async def draft_answer(prompt: str) -> str:
-    return f"Draft answer for: {prompt}"
-
-
-@register_agent(name="support-agent")
-async def support_agent(prompt: str) -> str:
-    return await draft_answer(prompt)
-
-
 @app.post("/runs")
 async def start_run(payload: dict[str, str]) -> dict[str, str]:
     handle = await agent_runtime.agents.start(
-        "support-agent",
+        "research-assistant",
         payload["input"],
     )
     return {"workflow_id": handle.workflow_id}
@@ -118,29 +157,14 @@ agent_runtime = AgentRuntime(
 )
 
 app = FastAPI(lifespan=agent_runtime.api_lifespan())
-```
 
-Use `agent_runner` inside registered agents when calling an OpenAI agent. This
-code usually lives in the separate agent module:
-
-```python
-# my_app/separate_agent_file.py
-from agents import Agent
-from amber import agent_runner, register_agent
-
-research_agent = Agent(
-    name="Research Agent",
-    instructions="Research the user request and return a concise answer.",
-)
-
-
-@register_agent(name="research-assistant")
-async def research(topic: str) -> str:
-    result = await agent_runner(
-        starting_agent=research_agent,
-        input=f"Research this topic: {topic}",
+@app.post("/runs")
+async def start_run(payload: dict[str, str]) -> dict[str, str]:
+    handle = await agent_runtime.agents.start(
+        "research-assistant",
+        payload["input"],
     )
-    return str(result.final_output)
+    return {"workflow_id": handle.workflow_id}
 ```
 
 Run the API process with your ASGI server:

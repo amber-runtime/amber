@@ -113,6 +113,10 @@ resource "aws_ecs_task_definition" "dashboard_api" {
         value = "${var.project_name}-${var.environment}-dashboard-api"
       },
       {
+        name  = "AMBER_DASHBOARD_AUTH"
+        value = "required"
+      },
+      {
         name  = "COGNITO_ISSUER"
         value = "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.dashboard_admin.id}"
       },

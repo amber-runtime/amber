@@ -50,6 +50,8 @@ COGNITO_CLIENT_ID = os.environ.get("COGNITO_CLIENT_ID", "")
 COGNITO_REGION = os.environ.get("COGNITO_REGION", "")
 COGNITO_USER_POOL_ID = os.environ.get("COGNITO_USER_POOL_ID", "")
 COGNITO_DOMAIN = os.environ.get("COGNITO_DOMAIN", "")
+DASHBOARD_AUTH_MODE = os.environ.get("AMBER_DASHBOARD_AUTH", "auto").strip().lower() or "auto"
+VALID_AUTH_MODES = {"auto", "disabled", "required"}
 
 LITELLM_PRICING_URL = (
     "https://raw.githubusercontent.com/BerriAI/litellm/main/"
@@ -90,8 +92,52 @@ def get_dashboard_client() -> DashboardClient:
     return DashboardClient(db_url=DB_URL)
 
 
-def _auth_enabled() -> bool:
+def _has_cognito_config() -> bool:
     return bool(COGNITO_ISSUER and COGNITO_CLIENT_ID)
+
+
+def _has_complete_cognito_config() -> bool:
+    return bool(
+        COGNITO_ISSUER
+        and COGNITO_CLIENT_ID
+        and COGNITO_REGION
+        and COGNITO_USER_POOL_ID
+        and COGNITO_DOMAIN
+    )
+
+
+def _auth_mode() -> str:
+    if DASHBOARD_AUTH_MODE not in VALID_AUTH_MODES:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Invalid AMBER_DASHBOARD_AUTH value. "
+                "Expected one of: auto, disabled, required."
+            ),
+        )
+    return DASHBOARD_AUTH_MODE
+
+
+def _auth_config_error() -> str | None:
+    mode = _auth_mode()
+    if mode == "required" and not _has_complete_cognito_config():
+        return (
+            "Dashboard auth is required but Cognito config is incomplete. "
+            "Check COGNITO_ISSUER, COGNITO_CLIENT_ID, COGNITO_REGION, "
+            "COGNITO_USER_POOL_ID, and COGNITO_DOMAIN."
+        )
+    return None
+
+
+def _auth_enabled() -> bool:
+    mode = _auth_mode()
+    if mode == "disabled":
+        return False
+    if mode == "required":
+        if _auth_config_error():
+            return True
+        return True
+    return _has_cognito_config()
 
 
 @lru_cache(maxsize=1)
@@ -122,6 +168,9 @@ def _validate_cognito_token(token: str) -> dict[str, Any]:
 async def require_admin(
     authorization: Optional[str] = Header(default=None),
 ) -> dict[str, Any]:
+    config_error = _auth_config_error()
+    if config_error:
+        raise HTTPException(status_code=503, detail=config_error)
     if not _auth_enabled():
         return {}
     if not authorization:
@@ -173,6 +222,9 @@ async def health() -> dict[str, str]:
 
 @app.get("/auth/config")
 async def auth_config() -> dict[str, Any]:
+    config_error = _auth_config_error()
+    if config_error:
+        raise HTTPException(status_code=503, detail=config_error)
     return {
         "enabled": _auth_enabled(),
         "domain": COGNITO_DOMAIN,

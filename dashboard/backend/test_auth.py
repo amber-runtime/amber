@@ -43,6 +43,7 @@ class FakeDashboardClient:
 
 
 def configure_auth(monkeypatch, public_key: Any | None = None) -> None:
+    monkeypatch.setattr(server, "DASHBOARD_AUTH_MODE", "auto")
     monkeypatch.setattr(server, "COGNITO_ISSUER", ISSUER)
     monkeypatch.setattr(server, "COGNITO_CLIENT_ID", CLIENT_ID)
     monkeypatch.setattr(server, "COGNITO_REGION", "us-west-2")
@@ -74,6 +75,71 @@ def test_health_and_auth_config_are_public(monkeypatch) -> None:
     assert config.status_code == 200
     assert config.json()["enabled"] is True
     assert config.json()["client_id"] == CLIENT_ID
+
+
+def test_auth_config_auto_without_cognito_disables_auth(monkeypatch) -> None:
+    monkeypatch.setattr(server, "DASHBOARD_AUTH_MODE", "auto")
+    monkeypatch.setattr(server, "COGNITO_ISSUER", "")
+    monkeypatch.setattr(server, "COGNITO_CLIENT_ID", "")
+    client = TestClient(server.app)
+
+    response = client.get("/auth/config")
+
+    assert response.status_code == 200
+    assert response.json()["enabled"] is False
+
+
+def test_auth_config_disabled_ignores_cognito_config(monkeypatch) -> None:
+    configure_auth(monkeypatch)
+    monkeypatch.setattr(server, "DASHBOARD_AUTH_MODE", "disabled")
+    monkeypatch.setattr(server, "get_dashboard_client", lambda: FakeDashboardClient())
+    client = TestClient(server.app)
+
+    config = client.get("/auth/config")
+    workflows = client.get("/workflows")
+
+    assert config.status_code == 200
+    assert config.json()["enabled"] is False
+    assert workflows.status_code == 200
+
+
+def test_auth_config_required_with_cognito_enables_auth(monkeypatch) -> None:
+    configure_auth(monkeypatch)
+    monkeypatch.setattr(server, "DASHBOARD_AUTH_MODE", "required")
+    client = TestClient(server.app)
+
+    response = client.get("/auth/config")
+
+    assert response.status_code == 200
+    assert response.json()["enabled"] is True
+
+
+def test_auth_config_required_without_cognito_fails_closed(monkeypatch) -> None:
+    monkeypatch.setattr(server, "DASHBOARD_AUTH_MODE", "required")
+    monkeypatch.setattr(server, "COGNITO_ISSUER", "")
+    monkeypatch.setattr(server, "COGNITO_CLIENT_ID", "")
+    monkeypatch.setattr(server, "get_dashboard_client", lambda: FakeDashboardClient())
+    client = TestClient(server.app)
+
+    config = client.get("/auth/config")
+    workflows = client.get("/workflows")
+
+    assert config.status_code == 503
+    assert "Dashboard auth is required" in config.json()["detail"]
+    assert workflows.status_code == 503
+    assert "Dashboard auth is required" in workflows.json()["detail"]
+
+
+def test_auth_config_required_without_hosted_ui_domain_fails_closed(monkeypatch) -> None:
+    configure_auth(monkeypatch)
+    monkeypatch.setattr(server, "DASHBOARD_AUTH_MODE", "required")
+    monkeypatch.setattr(server, "COGNITO_DOMAIN", "")
+    client = TestClient(server.app)
+
+    response = client.get("/auth/config")
+
+    assert response.status_code == 503
+    assert "COGNITO_DOMAIN" in response.json()["detail"]
 
 
 def test_dashboard_routes_reject_missing_auth(monkeypatch) -> None:

@@ -165,6 +165,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<AuthConfig | null>(null)
   const [authenticated, setAuthenticated] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -190,7 +191,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
     load().catch((error) => {
       console.error('Dashboard auth failed:', error)
-      if (!cancelled) setLoading(false)
+      if (!cancelled) {
+        setError(error instanceof Error ? error.message : String(error))
+        setLoading(false)
+      }
     })
 
     return () => {
@@ -226,6 +230,16 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }
 
   if (!authenticated) {
+    if (error) {
+      return (
+        <div className="min-h-screen bg-slate-950 text-slate-100 grid place-items-center px-6">
+          <div className="max-w-md rounded border border-red-500/50 bg-red-950/20 p-5">
+            <h1 className="text-base font-semibold text-red-100">Dashboard auth is misconfigured</h1>
+            <p className="mt-2 text-sm text-red-200/80">{error}</p>
+          </div>
+        </div>
+      )
+    }
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 grid place-items-center">
         <button
