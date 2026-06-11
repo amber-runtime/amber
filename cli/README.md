@@ -95,11 +95,10 @@ routes expose private data or mutations, enforce auth in your app.
 
 ## Local Dashboard
 
-For local development, serve the packaged Amber dashboard from the CLI:
+For local development, point Amber at your Postgres database and serve the
+packaged dashboard from the CLI:
 
 ```bash
-export DB_URL=postgresql://...
-uvicorn my_app.main:app
 amber dashboard dev
 ```
 
@@ -156,6 +155,8 @@ amber deploy --service customer-app
 | `amber workflows list` | List deployed workflows for scripts and coding agents |
 | `amber workflows queued` | List queued workflows for scripts and coding agents |
 | `amber workflows show <workflow_id>` | Show workflow details for scripts and coding agents |
+| `amber dashboard dev` | Run the local Amber dashboard for local environments |
+
 
 ## AWS Credentials
 

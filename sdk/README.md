@@ -39,7 +39,6 @@ from amber import (
     register_agent,
     sleep,
     step,
-    workflow,
 )
 ```
 
@@ -52,8 +51,7 @@ inside registered agents so agent calls are tracked as part of the durable
 workflow and can recover cleanly after restarts.
 
 `@register_agent` creates a named durable agent workflow that
-`AgentRuntime.agents.start(...)` can enqueue. `@workflow` defines general
-durable workflows, `@step` marks retryable units inside workflows, and `sleep`
+`AgentRuntime.agents.start(...)` can enqueue. `@step` marks retryable units inside workflows and `sleep`
 provides durable sleep that recover cleanly after restarts.
 
 ## Application Shape
@@ -61,48 +59,25 @@ provides durable sleep that recover cleanly after restarts.
 Amber applications define a normal Python app and an agent runtime target, then
 deploy with the `amber` CLI.
 
-This example uses FastAPI for the app server and `ddgs` for a sample search
-tool; install those separately if your app uses them.
+This example uses FastAPI for the app server and the OpenAI Agents SDK hosted
+web search tool; install FastAPI separately if your app uses it.
 
 ```python
-from agents import Agent, function_tool
-from ddgs import DDGS
+from agents import Agent, WebSearchTool
 from fastapi import FastAPI
 
-from amber import AgentRuntime, agent_runner, register_agent, step
-
-
-@function_tool
-@step()
-def search_web(query: str) -> str:
-    """Search the web for information about a topic. Returns titles, URLs, and summaries."""
-    with DDGS() as ddgs:
-        results = list(ddgs.text(query, max_results=5))
-
-    if not results:
-        return "No results found."
-
-    formatted = []
-    for result in results:
-        formatted.append(
-            f"Title: {result['title']}\n"
-            f"URL: {result['href']}\n"
-            f"Summary: {result['body']}"
-        )
-
-    return "\n---\n".join(formatted)
+from amber import AgentRuntime, agent_runner, register_agent
 
 
 research_agent = Agent(
     name="research-assistant",
     instructions="""You are a research assistant. Given a topic:
-1. Search for information using search_web
+1. Search for current information when needed
 2. Evaluate whether you have enough to write a thorough summary
 3. If not, search again with a more specific or different query
-4. Search at least twice before concluding
-5. Synthesize findings into a clear, well-structured summary
+4. Synthesize findings into a clear, well-structured summary
 Be explicit about what you found and what remains uncertain.""",
-    tools=[search_web],
+    tools=[WebSearchTool()],
 )
 
 

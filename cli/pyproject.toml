@@ -24,7 +24,7 @@ classifiers = [
     "Topic :: System :: Systems Administration",
 ]
 dependencies = [
-    "amber-sdk>=0.1.1",
+    "amber-sdk>=0.1.2",
     "certifi>=2023.7.22",
     "click>=8.1",
     "rich>=13.0",
