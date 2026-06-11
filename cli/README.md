@@ -93,6 +93,26 @@ React clients should call the app API at `/api/...`. The frontend build sets
 Amber does not add dashboard Cognito auth to your application `/api` routes. If those
 routes expose private data or mutations, enforce auth in your app.
 
+## Local Dashboard
+
+For local development, serve the packaged Amber dashboard from the CLI:
+
+```bash
+export DB_URL=postgresql://...
+uvicorn my_app.main:app
+amber dashboard dev
+```
+
+Open the local dashboard at:
+
+```text
+http://localhost:8765/admin/
+```
+
+The local dashboard reads workflow data from `DB_URL` and does not use AWS,
+Cognito, or CloudFront. The deployed dashboard is still created by
+`amber deploy`, served at `/admin/`, and protected by Cognito.
+
 ## Deploy Pipeline
 
 `amber deploy` runs a preflight before mutating AWS. It validates `amber.yaml`,

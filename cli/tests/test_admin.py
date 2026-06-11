@@ -47,6 +47,7 @@ def test_root_help_identifies_admin_as_cognito_dashboard_access() -> None:
     assert result.exit_code == 0
     assert "admin      Manage Cognito users for Amber dashboard access." in result.output
     assert "auth       Configure and check AWS access." in result.output
+    assert "dashboard  Run the local Amber dashboard." in result.output
 
 
 def test_admin_create_user_reads_terraform_outputs_and_creates_cognito_user(monkeypatch) -> None:

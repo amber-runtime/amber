@@ -56,6 +56,33 @@ def test_local_wheel_install_behaves_like_product_package(tmp_path: Path) -> Non
     )
     assert "Amber Runtime CLI" in help_result.stdout
 
+    asset_result = subprocess.run(
+        [
+            str(python),
+            "-c",
+            "\n".join(
+                [
+                    "from amber_cli.assets import asset_path",
+                    "required = [",
+                    "    asset_path('frontend', 'dist', 'index.html'),",
+                    "    asset_path('control_plane', 'dashboard', 'backend', 'server.py'),",
+                    "    asset_path('docker', 'Dockerfile.dashboard-api'),",
+                    "    asset_path('docker', 'Dockerfile.customer-app'),",
+                    "    asset_path('docker', 'Dockerfile.customer-worker'),",
+                    "    asset_path('terraform', 'main.tf'),",
+                    "    asset_path('terraform', 'ecs.tf'),",
+                    "]",
+                    "missing = [str(path) for path in required if not path.is_file()]",
+                    "assert not missing, missing",
+                ]
+            ),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert asset_result.returncode == 0
+
     customer = tmp_path / "customer"
     app_dir = customer / "my_app"
     app_dir.mkdir(parents=True)

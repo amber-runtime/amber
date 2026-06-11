@@ -106,6 +106,10 @@ environment: {environment}
     click.echo(
         "  5. Create admin user: amber admin create-user --email <you@example.com>"
     )
+    click.echo()
+    click.echo("Local dashboard:")
+    click.echo("  Set DB_URL, run your app, then inspect local workflows with:")
+    click.echo("  amber dashboard dev")
 
 
 def _select_candidate(candidates: list[AppCandidate]) -> AppCandidate | None:

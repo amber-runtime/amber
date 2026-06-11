@@ -126,6 +126,26 @@ python -m amber.worker my_app.main:agent_runtime
 Both processes need the same database URL. Use `DB_URL` as the public app
 environment variable.
 
+## Local Dashboard
+
+For local development, serve the packaged Amber dashboard from the CLI:
+
+```bash
+export DB_URL=postgresql://...
+uvicorn my_app.main:app
+amber dashboard dev
+```
+
+Open the local dashboard at:
+
+```text
+http://localhost:8765/admin/
+```
+
+The local dashboard reads workflow data from `DB_URL` and does not use AWS,
+Cognito, or CloudFront. The deployed dashboard is still created by
+`amber deploy`, served at `/admin/`, and protected by Cognito.
+
 ## `amber.yaml`
 
 `amber init` writes the user-facing deploy config:
